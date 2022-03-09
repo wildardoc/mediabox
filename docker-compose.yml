@@ -13,25 +13,6 @@ version: '3.5'
 services:
 
   # ----------------------------------------
-  # COUCHPOTATO
-  # ----------------------------------------
-  couchpotato:
-    image: lscr.io/linuxserver/couchpotato
-    container_name: couchpotato
-    restart: unless-stopped
-    network_mode: "bridge"
-    ports:
-        - '${IP_ADDRESS}:5050:5050'
-    environment:
-        - PUID=${PUID}
-        - TZ=${TZ}
-        - PGID=${PGID}
-    volumes:
-        - './couchpotato:/config'
-        - '${DLDIR}/completed:/downloads'
-        - '${MOVIEDIR}:/movies'
-
-  # ----------------------------------------
   # DELUGEVPN
   # ----------------------------------------
   arch-delugevpn:
@@ -69,113 +50,6 @@ services:
         - './delugevpn/config:/config'
 
   # ----------------------------------------
-  # DOZZLE
-  # ----------------------------------------
-  dozzle:
-    image: amir20/dozzle:latest
-    container_name: doozle
-    restart: unless-stopped
-    network_mode: "bridge"
-    ports:
-        - '${IP_ADDRESS}:9999:8080'
-    volumes:
-        - '/var/run/docker.sock:/var/run/docker.sock'
-
-  # ----------------------------------------
-  # DUPLICATI
-  # ----------------------------------------
-  duplicati:
-    image: lscr.io/linuxserver/duplicati
-    container_name: duplicati
-    restart: unless-stopped
-    network_mode: "bridge"
-    ports:
-        - '${IP_ADDRESS}:8200:8200'
-    environment:
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - TZ=${TZ}
-    volumes:
-        - './duplicati:/config'
-        - './duplicati/backups:/backups'
-        - '${PWD}:/source'
-
-  # ----------------------------------------
-  # FILEBROWSER
-  # ----------------------------------------
-  filebrowser:
-    image: hurlenko/filebrowser
-    container_name: filebrowser
-    restart: unless-stopped
-    network_mode: "bridge"
-    user: "${PUID}:${PGID}"
-    ports:
-        - '${IP_ADDRESS}:8008:8080'
-    environment:
-        - FB_BASEURL=/filebrowser
-        - TZ=${TZ}
-    volumes:
-        - './filebrowser:/config'
-        - '${PWD}:/data/mediabox'
-
-  # ----------------------------------------
-  # FLARESOLVERR
-  # ----------------------------------------
-  flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
-    container_name: flaresolverr
-    restart: unless-stopped
-    network_mode: "bridge"
-    environment:
-        - LOG_LEVEL=${LOG_LEVEL:-info}
-        - LOG_HTML=${LOG_HTML:-false}
-        - CAPTCHA_SOLVER=${CAPTCHA_SOLVER:-none}
-        - TZ=${TZ}
-    ports:
-        - '${IP_ADDRESS}:8191:8191'
-    volumes:
-        - ./flaresolverr:/storage
-
-  # ----------------------------------------
-  # GLANCES
-  # ----------------------------------------
-  glances:
-    image: nicolargo/glances:latest-alpine
-    container_name: glances
-    restart: unless-stopped
-    network_mode: "bridge"
-    pid: host
-    ports:
-        - '${IP_ADDRESS}:61208:61208'
-    environment:
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - TZ=${TZ}
-        - GLANCES_OPT=-w
-    volumes:
-        - './glances:/config'
-        - '/var/run/docker.sock:/var/run/docker.sock:ro'
-
-  # ----------------------------------------
-  # HEADPHONES
-  # ----------------------------------------
-  headphones:
-    image: lscr.io/linuxserver/headphones
-    container_name: headphones
-    restart: unless-stopped
-    network_mode: "bridge"
-    ports:
-        - '${IP_ADDRESS}:8282:8181'
-    environment:
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - TZ=${TZ}
-    volumes:
-        - './headphones:/config'
-        - '${DLDIR}/completed:/downloads'
-        - '${MUSICDIR}:/music'
-
-  # ----------------------------------------
   # HOMER
   # ----------------------------------------
   homer:
@@ -210,26 +84,6 @@ services:
         - '${DLDIR}/completed:/downloads'
 
   # ----------------------------------------
-  # JELLYFIN
-  # ----------------------------------------
-  jellyfin:
-    image: jellyfin/jellyfin
-    container_name: jellyfin
-    restart: unless-stopped
-    network_mode: "bridge"
-    user: "${PUID}:${PGID}"
-    ports:
-        - '${IP_ADDRESS}:8096:8096'
-    environment:
-        - TZ=${TZ}
-    volumes:
-        - './jellyfin:/config'
-        - '${MISCDIR}:/media/misc'
-        - '${MOVIEDIR}:/media/movies'
-        - '${MUSICDIR}:/media/music'
-        - '${TVDIR}:/media/tv'
-
-  # ----------------------------------------
   # LIDARR
   # ----------------------------------------
   lidarr:
@@ -247,86 +101,6 @@ services:
         - './lidarr:/config'
         - '${DLDIR}/completed:/data/completed'
         - '${MUSICDIR}:/music'
-
-  # ----------------------------------------
-  # METUBE
-  # ----------------------------------------
-  metube:
-    image: alexta69/metube
-    container_name: metube
-    restart: unless-stopped
-    user: "${PUID}:${PGID}"
-    network_mode: "bridge"
-    ports:
-        - '${IP_ADDRESS}:8281:8081'
-    volumes:
-        - '${MISCDIR}:/downloads'
-        - './metube:/state'
-        - '/etc/localtime:/etc/localtime:ro'
-
-  # ----------------------------------------
-  # MINIO
-  # ----------------------------------------
-  minio:
-    image: minio/minio
-    container_name: minio
-    restart: unless-stopped
-    network_mode: "bridge"
-    ports:
-        - '${IP_ADDRESS}:9009:9000'
-        - '${IP_ADDRESS}:9001:9001'
-    environment:
-        - MINIO_ROOT_USER=minio
-        - MINIO_ROOT_PASSWORD=minio123
-    volumes:
-        - './minio:/root/.minio'
-        - '${PWD}:/export'
-    command: server --console-address ":9001" /export
-    healthcheck:
-        test: ["CMD", "curl", "-f", "http://${IP_ADDRESS}:9009/minio/health/live"]
-        interval: 5m
-        timeout: 20s
-        retries: 3
-        start_period: 3m
-
-  # ----------------------------------------
-  # MUXIMUX
-  # ----------------------------------------
-  muximux:
-    image: lscr.io/linuxserver/muximux
-    container_name: muximux
-    restart: unless-stopped
-    network_mode: "bridge"
-    ports:
-        - '${IP_ADDRESS}:8080:80'
-    environment:
-        - PUID=${PUID}
-        - PGID=${PGID}
-    volumes:
-        - './muximux:/config'
-        - '/etc/localtime:/etc/localtime:ro'
-
-  # ----------------------------------------
-  # NETDATA
-  # ----------------------------------------
-  netdata:
-    image: netdata/netdata:latest
-    container_name: netdata
-    hostname: '${HOSTNAME}'
-    restart: unless-stopped
-    network_mode: "bridge"
-    ports:
-        - '${IP_ADDRESS}:19999:19999'
-    cap_add:
-        - SYS_PTRACE
-    security_opt:
-        - apparmor:unconfined
-    environment:
-        - PGID=${DOCKERGRP}
-    volumes:
-        - '/proc:/host/proc:ro'
-        - '/sys:/host/sys:ro'
-        - '/var/run/docker.sock:/var/run/docker.sock:rw'
 
   # ----------------------------------------
   # NZBGet
@@ -365,23 +139,6 @@ services:
       - '${DLDIR}:/downloads'
 
   # ----------------------------------------
-  # OMBI
-  # ----------------------------------------
-  ombi:
-    image: lscr.io/linuxserver/ombi
-    container_name: ombi
-    restart: unless-stopped
-    network_mode: "bridge"
-    ports:
-        - '${IP_ADDRESS}:3579:3579'
-    environment:
-        - PUID=${PUID}
-        - PGID=${PGID}
-    volumes:
-        - './ombi:/config'
-        - '/etc/localtime:/etc/localtime:ro'
-
-  # ----------------------------------------
   # OVERSEERR
   # ----------------------------------------
   overseerr:
@@ -406,7 +163,7 @@ services:
     container_name: plex
     image: plexinc/pms-docker:${PMSTAG}
     restart: unless-stopped
-    network_mode: "bridge"
+    network_mode: "host"
     ports:
         - '${IP_ADDRESS}:32400:32400/tcp'
         - '${IP_ADDRESS}:3005:3005/tcp'
@@ -489,42 +246,6 @@ services:
         - '${MOVIEDIR}:/movies'
 
   # ----------------------------------------
-  # REQUESTRR
-  # ----------------------------------------
-  requestrr:
-    image: lscr.io/linuxserver/requestrr
-    container_name: requestrr
-    restart: unless-stopped
-    network_mode: "bridge"
-    environment:
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - TZ=${TZ}
-    ports:
-        - ${IP_ADDRESS}:4545:4545
-    volumes:
-        - ./requestrr:/config
-
-  # ----------------------------------------
-  # SICKCHILL
-  # ----------------------------------------
-  sickchill:
-    image: lscr.io/linuxserver/sickchill
-    container_name: sickchill
-    restart: unless-stopped
-    network_mode: "bridge"
-    ports:
-        - '${IP_ADDRESS}:8081:8081'
-    environment:
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - TZ=${TZ}
-    volumes:
-        - './sickchill:/config'
-        - '${DLDIR}/completed:/downloads'
-        - '${TVDIR}:/tv'
-
-  # ----------------------------------------
   # SONARR
   # ----------------------------------------
   sonarr:
@@ -542,99 +263,6 @@ services:
         - './sonarr:/config'
         - '${DLDIR}/completed:/data/completed'
         - '${TVDIR}:/tv'
-
-  # ----------------------------------------
-  # SPEEDTEST
-  # ----------------------------------------
-  speedtest:
-    image: henrywhitaker3/speedtest-tracker:dev
-    container_name: speedtest
-    restart: unless-stopped
-    network_mode: "bridge"
-    ports:
-        - '${IP_ADDRESS}:8765:80'
-    environment:
-        - TZ=${TZ}
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - OOKLA_EULA_GDPR=true
-    volumes:
-        - './speedtest:/config'
-
-  # ----------------------------------------
-  # SQLITEBROWSER
-  # ----------------------------------------
-  sqlitebrowser:
-    image: lscr.io/linuxserver/sqlitebrowser
-    container_name: sqlitebrowser
-    restart: unless-stopped
-    network_mode: "bridge"
-    ports:
-        - ${IP_ADDRESS}:3000:3000
-    environment:
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - TZ=${TZ}
-    volumes:
-        - ./sqlitebrowser:/config
-        - ${PWD}:/config/mediabox
-
-  # ----------------------------------------
-  # TDARR
-  # ----------------------------------------
-  tdarr:
-    image: haveagitgat/tdarr:latest
-    container_name: tdarr
-    restart: unless-stopped
-    network_mode: "bridge"
-    ports:
-        - '${IP_ADDRESS}:8265:8265'
-        - '${IP_ADDRESS}:8266:8266'
-        - '${IP_ADDRESS}:8267:8267'
-    environment:
-        - TZ=${TZ}
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - UMASK_SET=002
-        - serverIP=${IP_ADDRESS}
-        - serverPort=8266
-        - webUIPort=8265
-    volumes:
-        - './tdarr/server:/app/server'
-        - './tdarr/configs:/app/configs'
-        - './tdarr/logs:/app/logs'
-        - './tdarr/transcode_cache:/temp'
-        - '${MISCDIR}:/data/misc'
-        - '${MOVIEDIR}:/data/movies'
-        - '${MUSICDIR}:/data/music'
-        - '${TVDIR}:/data/tvshows'
-
-  # ----------------------------------------
-  # TDARR-NODE
-  # ----------------------------------------
-  tdarr-node:
-    image: haveagitgat/tdarr_node:latest
-    container_name: tdarr-node
-    restart: unless-stopped
-    network_mode: service:tdarr
-    environment:
-        - TZ=${TZ}
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - UMASK_SET=002
-        - nodeID=Node_01
-        - nodeIP=${IP_ADDRESS}
-        - nodePort=8267
-        - serverIP=${IP_ADDRESS}
-        - serverPort=8266
-    volumes:
-        - './tdarr/configs:/app/configs'
-        - './tdarr/logs:/app/logs'
-        - './tdarr/transcode_cache:/temp'
-        - '${MISCDIR}:/data/misc'
-        - '${MOVIEDIR}:/data/movies'
-        - '${MUSICDIR}:/data/music'
-        - '${TVDIR}:/data/tvshows'
 
   # ----------------------------------------
   # TAUTULLI
@@ -655,24 +283,6 @@ services:
         - './plex/Library/Application Support/Plex Media Server/Logs:/logs:ro'
     depends_on:
         - plex
-
-  # ----------------------------------------
-  # TUBESYNC
-  # ----------------------------------------
-  tubesync:
-    image: ghcr.io/meeb/tubesync:latest
-    container_name: tubesync
-    restart: unless-stopped
-    network_mode: "bridge"
-    ports:
-         - '${IP_ADDRESS}:4848:4848'
-    volumes:
-         - './tubesync:/config'
-         - '${MISCDIR}:/downloads'
-    environment:
-         - TZ=${TZ}
-         - PUID=${PUID}
-         - PGID=${PGID}
 
   # ----------------------------------------
   # WATCHTOWER
