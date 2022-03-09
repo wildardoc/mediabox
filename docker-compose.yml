@@ -24,12 +24,12 @@ services:
         - '${IP_ADDRESS}:5050:5050'
     environment:
         - PUID=${PUID}
+        - TZ=${TZ}
         - PGID=${PGID}
     volumes:
         - './couchpotato:/config'
         - '${DLDIR}/completed:/downloads'
         - '${MOVIEDIR}:/movies'
-        - '/etc/localtime:/etc/localtime:ro'
 
   # ----------------------------------------
   # DELUGEVPN
@@ -62,11 +62,11 @@ services:
         - NAME_SERVERS=84.200.69.80,37.235.1.174,1.1.1.1,37.235.1.177,84.200.70.40,1.0.0.1
         - DEBUG=false
         - PUID=${PUID}
+        - TZ=${TZ}
         - PGID=${PGID}
     volumes:
         - '${DLDIR}:/data'
         - './delugevpn/config:/config'
-        - '/etc/localtime:/etc/localtime:ro'
 
   # ----------------------------------------
   # DOZZLE
@@ -94,11 +94,11 @@ services:
     environment:
         - PUID=${PUID}
         - PGID=${PGID}
+        - TZ=${TZ}
     volumes:
         - './duplicati:/config'
         - './duplicati/backups:/backups'
         - '${PWD}:/source'
-        - '/etc/localtime:/etc/localtime:ro'
 
   # ----------------------------------------
   # FILEBROWSER
@@ -113,6 +113,7 @@ services:
         - '${IP_ADDRESS}:8008:8080'
     environment:
         - FB_BASEURL=/filebrowser
+        - TZ=${TZ}
     volumes:
         - './filebrowser:/config'
         - '${PWD}:/data/mediabox'
@@ -129,10 +130,10 @@ services:
         - LOG_LEVEL=${LOG_LEVEL:-info}
         - LOG_HTML=${LOG_HTML:-false}
         - CAPTCHA_SOLVER=${CAPTCHA_SOLVER:-none}
+        - TZ=${TZ}
     ports:
         - '${IP_ADDRESS}:8191:8191'
     volumes:
-        - /etc/localtime:/etc/localtime:ro
         - ./flaresolverr:/storage
 
   # ----------------------------------------
@@ -203,10 +204,10 @@ services:
     environment:
         - PUID=${PUID}
         - PGID=${PGID}
+        - TZ=${TZ}
     volumes:
         - './jackett:/config'
         - '${DLDIR}/completed:/downloads'
-        - '/etc/localtime:/etc/localtime:ro'
 
   # ----------------------------------------
   # JELLYFIN
@@ -219,13 +220,14 @@ services:
     user: "${PUID}:${PGID}"
     ports:
         - '${IP_ADDRESS}:8096:8096'
+    environment:
+        - TZ=${TZ}
     volumes:
         - './jellyfin:/config'
         - '${MISCDIR}:/media/misc'
         - '${MOVIEDIR}:/media/movies'
         - '${MUSICDIR}:/media/music'
         - '${TVDIR}:/media/tv'
-        - '/etc/localtime:/etc/localtime:ro'
 
   # ----------------------------------------
   # LIDARR
@@ -240,11 +242,11 @@ services:
     environment:
         - PUID=${PUID}
         - PGID=${PGID}
+        - TZ=${TZ}
     volumes:
         - './lidarr:/config'
         - '${DLDIR}/completed:/data/completed'
         - '${MUSICDIR}:/music'
-        - '/etc/localtime:/etc/localtime:ro'
 
   # ----------------------------------------
   # METUBE
@@ -421,6 +423,7 @@ services:
         - ALLOWED_NETWORKS=${CIDR_ADDRESS}
         - PLEX_UID=${PUID}
         - PLEX_GID=${PGID}
+        - TZ=${TZ}
     hostname: ${HOSTNAME}
     volumes:
         - './plex:/config'
@@ -429,7 +432,6 @@ services:
         - '${MOVIEDIR}:/data/movies'
         - '${MUSICDIR}:/data/music'
         - '${TVDIR}:/data/tvshows'
-        - '/etc/localtime:/etc/localtime:ro'
 
   # ----------------------------------------
   # PORTAINER
@@ -444,10 +446,10 @@ services:
     environment:
         - PUID=${PUID}
         - PGID=${PGID}
+        - TZ=${TZ}
     volumes:
         - './portainer:/data'
         - '/var/run/docker.sock:/var/run/docker.sock'
-        - '/etc/localtime:/etc/localtime:ro'
     command: -H unix:///var/run/docker.sock
 
   # ----------------------------------------
@@ -480,11 +482,11 @@ services:
     environment:
         - PUID=${PUID}
         - PGID=${PGID}
+        - TZ=${TZ}
     volumes:
         - './radarr:/config'
         - '${DLDIR}/completed:/data/completed'
         - '${MOVIEDIR}:/movies'
-        - '/etc/localtime:/etc/localtime:ro'
 
   # ----------------------------------------
   # REQUESTRR
@@ -516,11 +518,11 @@ services:
     environment:
         - PUID=${PUID}
         - PGID=${PGID}
+        - TZ=${TZ}
     volumes:
         - './sickchill:/config'
         - '${DLDIR}/completed:/downloads'
         - '${TVDIR}:/tv'
-        - '/etc/localtime:/etc/localtime:ro'
 
   # ----------------------------------------
   # SONARR
@@ -540,7 +542,6 @@ services:
         - './sonarr:/config'
         - '${DLDIR}/completed:/data/completed'
         - '${TVDIR}:/tv'
-        - '/etc/localtime:/etc/localtime:ro'
 
   # ----------------------------------------
   # SPEEDTEST
@@ -607,7 +608,6 @@ services:
         - '${MOVIEDIR}:/data/movies'
         - '${MUSICDIR}:/data/music'
         - '${TVDIR}:/data/tvshows'
-        - '/etc/localtime:/etc/localtime:ro'
 
   # ----------------------------------------
   # TDARR-NODE
@@ -635,7 +635,6 @@ services:
         - '${MOVIEDIR}:/data/movies'
         - '${MUSICDIR}:/data/music'
         - '${TVDIR}:/data/tvshows'
-        - '/etc/localtime:/etc/localtime:ro'
 
   # ----------------------------------------
   # TAUTULLI
@@ -691,4 +690,3 @@ services:
         - TZ=${TZ}
     volumes:
         - '/var/run/docker.sock:/var/run/docker.sock'
-
