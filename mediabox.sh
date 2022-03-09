@@ -57,6 +57,7 @@ if [ -e 1.env ]; then
     miscdirectory=$(grep MISCDIR 1.env | cut -d = -f2)
     moviedirectory=$(grep MOVIEDIR 1.env | cut -d = -f2)
     musicdirectory=$(grep MUSICDIR 1.env | cut -d = -f2)
+    photodirectory=$(grep PHOTODIR 1.env | cut -d = -f2)
     # Echo back the media directioies, and other info to see if changes are needed
     printf "These are the Media Directory paths currently configured.\\n"
     printf "Your DOWNLOAD Directory is: %s \\n" "$dldirectory"
@@ -64,6 +65,7 @@ if [ -e 1.env ]; then
     printf "Your MISC Directory is: %s \\n" "$miscdirectory"
     printf "Your MOVIE Directory is: %s \\n" "$moviedirectory"
     printf "Your MUSIC Directory is: %s \\n" "$musicdirectory"
+    printf "Your PHOTO Directory is: %s \\n" "$photodirectory"
     printf "\\n\\n"
     read  -r -p "Are these directiores still correct? (y/n) " diranswer "$(echo \n)"
     printf "\\n\\n"
@@ -128,6 +130,7 @@ read -r -p "Where do you store your TV media? (Please use full path - /path/to/t
 read -r -p "Where do you store your MISC media? (Please use full path - /path/to/misc ): " miscdirectory
 read -r -p "Where do you store your MOVIE media? (Please use full path - /path/to/movies ): " moviedirectory
 read -r -p "Where do you store your MUSIC media? (Please use full path - /path/to/music ): " musicdirectory
+read -r -p "Where do you store your PHOTO media? (Please use full path - /path/to/photos ): " photoirectory
 fi
 if [ "$diranswer" == "n" ]; then
 read -r -p "Where do you store your DOWNLOADS? (Please use full path - /path/to/downloads ): " dldirectory
@@ -135,6 +138,7 @@ read -r -p "Where do you store your TV media? (Please use full path - /path/to/t
 read -r -p "Where do you store your MISC media? (Please use full path - /path/to/misc ): " miscdirectory
 read -r -p "Where do you store your MOVIE media? (Please use full path - /path/to/movies ): " moviedirectory
 read -r -p "Where do you store your MUSIC media? (Please use full path - /path/to/music ): " musicdirectory
+read -r -p "Where do you store your PHOTO media? (Please use full path - /path/to/photos ): " photodirectory
 fi
 
 # Create the directory structure
@@ -162,43 +166,27 @@ if [ -z "$musicdirectory" ]; then
     mkdir -p content/music
     musicdirectory="$PWD/content/music"
 fi
+if [ -z "$photodirectory" ]; then
+    mkdir -p content/photo
+    photodirectory="$PWD/content/photo"
+fi
 
-# Adjust for Container name changes
-[ -d "sickrage/" ] && mv sickrage/ sickchill  # Switch from Sickrage to SickChill
-
-mkdir -p couchpotato
 mkdir -p delugevpn
 mkdir -p delugevpn/config/openvpn
-mkdir -p duplicati
-mkdir -p duplicati/backups
-mkdir -p filebrowser
-mkdir -p flaresolverr
-mkdir -p glances
-mkdir -p headphones
 mkdir -p historical/env_files
 mkdir -p homer
 mkdir -p jackett
-mkdir -p jellyfin
 mkdir -p lidarr
-mkdir -p metube
-mkdir -p minio
-mkdir -p muximux
 mkdir -p nzbget
 mkdir -p nzbhydra2
-mkdir -p ombi
 mkdir -p overseerr
 mkdir -p "plex/Library/Application Support/Plex Media Server/Logs"
 mkdir -p portainer
 mkdir -p prowlarr
 mkdir -p radarr
-mkdir -p requestrr
-mkdir -p sickchill
 mkdir -p sonarr
 mkdir -p speedtest
-mkdir -p sqlitebrowser
 mkdir -p tautulli
-mkdir -p tdarr
-mkdir -p tubesync
 
 # Create menu - Select and Move the PIA VPN files
 echo "The following PIA Servers are avialable that support port-forwarding (for DelugeVPN); Please select one:"
@@ -260,6 +248,7 @@ echo "TVDIR=$tvdirectory"
 echo "MISCDIR=$miscdirectory"
 echo "MOVIEDIR=$moviedirectory"
 echo "MUSICDIR=$musicdirectory"
+echo "PHOTODIR=$photodirectory"
 echo "PIAUNAME=$piauname"
 echo "PIAPASS=$piapass"
 echo "CIDR_ADDRESS=$lannet"
@@ -285,8 +274,6 @@ mv historical/20*.env historical/env_files/ > /dev/null 2>&1
 rm -f mediaboxconfig.php > /dev/null 2>&1
 rm -f settings.ini.php > /dev/null 2>&1
 rm -f prep/mediaboxconfig.php > /dev/null 2>&1
-rm -f muximux/www/muximux/mediaboxconfig.php > /dev/null 2>&1
-rm -f muximux/www/muximux/env.txt > /dev/null 2>&1
 
 # Download & Launch the containers
 echo "The containers will now be pulled and launched"
@@ -356,27 +343,6 @@ perl -i -pe "s/locip/$locip/g" homer/mediaboxconfig.html
 perl -i -pe "s/daemonun/$daemonun/g" homer/mediaboxconfig.html
 perl -i -pe "s/daemonpass/$daemonpass/g" homer/mediaboxconfig.html
 docker start homer > /dev/null 2>&1
-
-# Configure Muximux settings and files
-while [ ! -f muximux/www/muximux/settings.ini.php-example ]; do sleep 1; done
-docker stop muximux > /dev/null 2>&1
-cp prep/settings.ini.php muximux/www/muximux/settings.ini.php
-sed '/^PIA/d' < .env > muximux/www/muximux/env.txt # Pull PIA creds from the displayed .env file
-perl -i -pe "s/locip/$locip/g" muximux/www/muximux/settings.ini.php
-docker start muximux > /dev/null 2>&1
-
-# If PlexPy existed - copy plexpy.db to Tautulli
-if [ -e plexpy/plexpy.db ]; then
-    docker stop tautulli > /dev/null 2>&1
-    mv tautulli/tautulli.db tautulli/tautulli.db.orig
-    cp plexpy/plexpy.db tautulli/tautulli.db
-    mv plexpy/plexpy.db plexpy/plexpy.db.moved
-    docker start tautulli > /dev/null 2>&1
-    mv plexpy/ historical/plexpy/
-fi
-if [ -e plexpy/plexpy.db.moved ]; then # Adjust for missed moves
-    mv plexpy/ historical/plexpy/
-fi
 
 # Create Port Mapping file
 for i in $(docker ps --format {{.Names}} | sort); do printf "\n === $i Ports ===\n" && docker port "$i"; done > homer/ports.txt
