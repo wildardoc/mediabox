@@ -35,60 +35,12 @@ icon = "muximux-bullhorn"
 color = "#93c47d"
 enabled = "true"
 
-[Couchpotato]
-name = "CouchPotato"
-url = "http://locip:5050"
-scale = 1
-icon = "muximux-couchpotato"
-color = "#f85c22"
-enabled = "true"
-
 [Deluge]
 name = "Deluge"
 url = "http://locip:8112"
 scale = 1
 icon = "muximux-deluge"
 color = "#385171"
-enabled = "true"
-
-[Doozle]
-name = "Dozzle"
-url = "http://locip:9999"
-scale = 1
-icon = "muximux-file-text"
-color = "#999999"
-enabled = "true"
-
-[Duplicati]
-name = "Duplicati"
-url = "http://locip:8200"
-scale = 1
-icon = "muximux-copy2"
-color = "#6fa8dc"
-enabled = "true"
-
-[Filebrowser]
-name = "Filebrowser"
-url = "http://locip:8008"
-scale = 1
-icon = "muximux-find_in_page"
-color = "#9fc5e8"
-enabled = "true"
-
-[Glances]
-name = "Glances"
-url = "http://locip:61208"
-scale = 1
-icon = "muximux-eye-plus"
-color = "#6aa84f"
-enabled = "true"
-
-[Headphones]
-name = "Headphones"
-url = "http://locip:8282"
-scale = 1
-icon = "muximux-headphones3"
-color = "#000000"
 enabled = "true"
 
 [Homer]
@@ -107,43 +59,12 @@ icon = "muximux-jackett"
 color = "#000000"
 enabled = "true"
 
-[Jellyfin]
-name = "JellyFin"
-url = "http://locip:8096"
-icon = "muximux-play2"
-color = "#674ea7"
-enabled = "true"
-
 [Lidarr]
 name = "Lidarr"
 url = "http://locip:8686"
 scale = 1
 icon = "muximux-music"
 color = "#93c47d"
-enabled = "true"
-
-[Metube]
-name = "Metube"
-url = "http://locip:8281"
-scale = 1
-icon = "muximux-youtube"
-color = "#cc0000"
-enabled = "true"
-
-[Minio]
-name = "Minio"
-url = "http://locip:9001"
-scale = 1
-icon = "muximux-stack"
-color = "#999999"
-enabled = "true"
-
-[NetData]
-name = "NetData"
-url = "http://locip:19999"
-scale = 1
-icon = "muximux-meter"
-color = "#cc0000"
 enabled = "true"
 
 [NZBGet]
@@ -160,14 +81,6 @@ url = "http://locip:5076"
 scale = 1
 icon = "muximux-nzbhydra"
 color = "#3f8927"
-enabled = "true"
-
-[Ombi]
-name = "Ombi"
-url = "http://locip:3579"
-scale = 1
-icon = "muximux-plex"
-color = "#f9be03"
 enabled = "true"
 
 [Overseerr]
@@ -210,22 +123,6 @@ icon = "muximux-sonarr"
 color = "#ffe599"
 enabled = "true"
 
-[Requestrr]
-name = "Requestrr"
-url = "http://locip:4545"
-scale = 1
-icon = "muximux-search"
-color = "#674ea7"
-enabled = "true"
-
-[SickChill]
-name = "SickChill"
-url = "http://locip:8081"
-scale = 1
-icon = "muximux-tv"
-color = "#6fa8dc"
-enabled = "true"
-
 [Sonarr]
 name = "Sonarr"
 url = "http://locip:8989"
@@ -234,42 +131,10 @@ icon = "muximux-sonarr"
 color = "#674ea7"
 enabled = "true"
 
-[Speedest]
-name = "Speedtest"
-url = "http://locip:8765"
-scale = 1
-icon = "muximux-stopwatch"
-color = "#cc0000"
-enabled = "true"
-
-[Sqlitebrowser]
-name = "SQLitebrowser"
-url = "http://locip:3000"
-scale = 1
-icon = "muximux-database"
-color = "#9fc5e8"
-enabled = "true"
-
 [Tautulli]
 name = "Tautulli"
 url = "http://locip:8181"
 scale = 1
 icon = "muximux-plexivity"
 color = "#cc7b19"
-enabled = "true"
-
-[Tdarr]
-name = "Tdarr"
-url = "http://locip:8265"
-scale = 1
-icon = "muximux-spinner10"
-color = "#0b5394"
-enabled = "true"
-
-[Tubesync]
-name = "TubeSync"
-url = "http://locip:4848"
-scale = 1
-icon = "muximux-youtube"
-color = "#cc0000"
 enabled = "true"
