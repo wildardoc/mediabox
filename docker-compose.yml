@@ -189,6 +189,7 @@ services:
         - '${MOVIEDIR}:/data/movies'
         - '${MUSICDIR}:/data/music'
         - '${TVDIR}:/data/tvshows'
+        - '${PHOTODIR}:/data/photos'
 
   # ----------------------------------------
   # PORTAINER
