@@ -11,6 +11,7 @@ Components include:
 * [Lidarr Music collection manager](https://lidarr.audio/)
 * [NZBGet Usenet Downloader](https://nzbget.net/)  
 * [NZBHydra2 Meta Search](https://github.com/theotherp/nzbhydra2)  
+* [Ombi media assistant](http://www.ombi.io/)
 * [Overseerr Media Library Request Management](https://github.com/sct/overseerr)
 * [Plex media server](https://www.plex.tv/)
 * [Portainer Docker Container manager](https://portainer.io/)
