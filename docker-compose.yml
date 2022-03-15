@@ -149,11 +149,11 @@ services:
     ports:
         - '${IP_ADDRESS}:3579:3579'
     environment:
+        - TZ=${TZ}
         - PUID=${PUID}
         - PGID=${PGID}
     volumes:
         - './ombi:/config'
-        - '/etc/localtime:/etc/localtime:ro'
 
   # ----------------------------------------
   # OVERSEERR
