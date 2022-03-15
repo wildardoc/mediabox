@@ -179,6 +179,7 @@ mkdir -p jackett
 mkdir -p lidarr
 mkdir -p nzbget
 mkdir -p nzbhydra2
+mkdir -p ombi
 mkdir -p overseerr
 mkdir -p "plex/Library/Application Support/Plex Media Server/Logs"
 mkdir -p portainer
