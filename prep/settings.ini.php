@@ -83,6 +83,14 @@ icon = "muximux-nzbhydra"
 color = "#3f8927"
 enabled = "true"
 
+[Ombi]
+name = "Ombi"
+url = "http://locip:3579"
+scale = 1
+icon = "muximux-plex"
+color = "#f9be03"
+enabled = "true"
+
 [Overseerr]
 name = "Overseerr"
 url = "http://locip:5055"
