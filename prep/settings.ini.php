@@ -109,7 +109,7 @@ enabled = "true"
 
 [Portainer]
 name = "Portainer"
-url = "https://locip:9443"
+url = "http://locip:9000"
 scale = 1
 icon = "muximux-tree"
 color = "#00ffff"
