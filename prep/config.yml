@@ -133,7 +133,7 @@ services:
         logo: "assets/icons/portainer.png"
         tag: "monitor"
         tagstyle: "is-danger"
-        url: "http://locip:9000"
+        url: "https://locip:9443"
         target: "_blank"
       - name: "Tautulli"
         logo: "assets/icons/tautulli.png"

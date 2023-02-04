@@ -6,8 +6,6 @@ if [ "$EUID" -eq 0 ]
   exit
 fi
 
-# set -x
-
 # See if we need to check GIT for updates
 if [ -e .env ]; then
     # Check for Updated Docker-Compose
@@ -23,29 +21,30 @@ if [ -e .env ]; then
     else
         printf "No Docker-Compose Update needed.\\n\\n"
     fi
-    # Stash any local changes to the base files
-    git stash > /dev/null 2>&1
+    # Check for updates to the Mediabox repo
     printf "Updating your local copy of Mediabox.\\n\\n"
-    # Pull the latest files from Git
-    git pull
-    # Check to see if this script "mediabox.sh" was updated and restart it if necessary
-    changed_files="$(git diff-tree -r --name-only --no-commit-id ORIG_HEAD HEAD)"
-    # Provide a message once the Git check/update  is complete
-    if [ -z "$changed_files" ]; then
+    printf "If this file 'mediabox.sh' is updated it will be re-run automatically.\\n\\n"
+  while true; do
+        git stash > /dev/null 2>&1
+        git pull
+    if git diff-tree --no-commit-id --name-only -r HEAD | grep -q "mediabox.sh"; then
+        mv .env 1.env
+        ./mediabox.sh
+    elif [[ -z "$(git diff-tree --no-commit-id --name-only -r HEAD)" ]]; then
         printf "Your Mediabox is current - No Update needed.\\n\\n"
+        mv .env 1.env
+        break
     else
-        printf "Mediabox Files Update complete.\\n\\nThis script will restart if necessary\\n\\n"
+        mv .env 1.env
+        break
     fi
-    # Rename the .env file so this check fails if mediabox.sh needs to re-launch
-    mv .env 1.env
-    read -r -p "Press any key to continue... " -n1 -s
-    printf "\\n\\n"
-    # Run exec mediabox.sh if mediabox.sh changed
-    grep --q "$changed_files" mediabox.sh && echo "mediabox.sh restarting" && exec $0
+  done
 fi
 
 # After update collect some current known variables
 if [ -e 1.env ]; then
+    # Give updated Message
+    printf "Docker Compose and Mediabox have been updated.\\n\\n"
     # Grab the CouchPotato, NBZGet, & PIA usernames & passwords to reuse
     daemonun=$(grep CPDAEMONUN 1.env | cut -d = -f2)
     daemonpass=$(grep CPDAEMONPASS 1.env | cut -d = -f2)
@@ -112,7 +111,6 @@ fi
 # Get info needed for PLEX Official image
 if [ -z "$pmstag" ] || [ "$pmsanswer" == "y" ]; then
 read -r -p "Which PLEX release do you want to run? By default 'public' will be used. (latest, public, plexpass): " pmstag
-read -r -p "If you have PLEXPASS what is your Claim Token from https://www.plex.tv/claim/ (Optional): " pmstoken
 fi
 # If not set - set PMS Tag to Public:
 if [ -z "$pmstag" ]; then
@@ -214,7 +212,7 @@ do
     vpnremote=$(grep "remote" "$filename" | cut -d ' ' -f2  | head -1)
     # Adjust for the PIA OpenVPN ciphers fallback
     echo "cipher aes-256-gcm" >> delugevpn/config/openvpn/*.ovpn
-    echo "ncp-disable" >> delugevpn/config/openvpn/*.ovpn
+    # echo "ncp-disable" >> delugevpn/config/openvpn/*.ovpn -- possibly not needed anymore
     # it'll ask for another unless we leave the loop
     break
 done
@@ -255,7 +253,6 @@ echo "PIAPASS=$piapass"
 echo "CIDR_ADDRESS=$lannet"
 echo "TZ=$time_zone"
 echo "PMSTAG=$pmstag"
-echo "PMSTOKEN=$pmstoken"
 echo "VPN_REMOTE=$vpnremote"
 } >> .env
 echo ".env file creation complete"
@@ -268,6 +265,9 @@ docker rm -f ouroboros > /dev/null 2>&1
 # Adjust for old uhttpd web container - Noted in issue #47
 docker rm -f uhttpd > /dev/null 2>&1
 [ -d "www/" ] && mv www/ historical/www/
+# Adjust for removal of Muximux
+docker rm -f muximux > /dev/null 2>&1
+[ -d "muximux/" ] && mv muximux/ historical/muximux/
 # Move back-up .env files
 mv 20*.env historical/env_files/ > /dev/null 2>&1
 mv historical/20*.env historical/env_files/ > /dev/null 2>&1
@@ -295,7 +295,7 @@ printf "\\n\\n"
 fi
 
 # Finish up the config
-printf "Configuring DelugeVPN, NZBGet, Muximux, and Permissions \\n"
+printf "Configuring DelugeVPN and Permissions \\n"
 printf "This may take a few minutes...\\n\\n"
 
 # Configure DelugeVPN: Set Daemon access on, delete the core.conf~ file
