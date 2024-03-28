@@ -205,6 +205,7 @@ services:
         - '${MISCDIR}:/data/misc'
         - '${MOVIEDIR}:/data/movies'
         - '${MUSICDIR}:/data/music'
+        - '/Storage/media/Movies_Ripped:/data/movies_ripped'
         - '${TVDIR}:/data/tvshows'
         - '${PHOTODIR}:/data/photos'
 
