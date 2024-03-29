@@ -116,7 +116,7 @@ services:
       - TZ=${TZ}
     network_mode: 'bridge'
     ports:
-      - '${IP_ADDRESS}:6790:6790'
+      - '${IP_ADDRESS}:6790:6789'
     volumes:
       - './nzbget:/config'
       - '${DLDIR}:/downloads'
