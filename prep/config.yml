@@ -79,7 +79,7 @@ services:
         logo: "assets/icons/nzbget.png"
         tag: "get"
         tagstyle: "is -info"
-        url: "http://locip:6789"
+        url: "http://locip:6790"
         target: "_blank"
       - name: "NZBHydra"
         logo: "assets/icons/nzbhydra.png"

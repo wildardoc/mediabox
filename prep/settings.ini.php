@@ -69,7 +69,7 @@ enabled = "true"
 
 [NZBGet]
 name = "NZBGet"
-url = "http://locip:6789"
+url = "http://locip:6790"
 scale = 1
 icon = "muximux-download"
 color = "#3f8927"
