@@ -21,3 +21,23 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+
+.env
+delugevpn/
+downloads/
+historical/
+homer/
+jackett/
+lidarr/
+make_zfs.sh
+nzbget/
+nzbhydra2/
+ombi/
+overseerr/
+plex/
+portainer/
+prowlarr/
+radarr/
+sabnzbd/
+sonarr/
+tautulli/
