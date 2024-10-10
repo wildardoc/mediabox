@@ -169,18 +169,14 @@ mkdir -p delugevpn
 mkdir -p delugevpn/config/openvpn
 mkdir -p historical/env_files
 mkdir -p homer
-mkdir -p jackett
 mkdir -p lidarr
 mkdir -p nzbget
-mkdir -p nzbhydra2
-mkdir -p ombi
 mkdir -p overseerr
 mkdir -p "plex/Library/Application Support/Plex Media Server/Logs"
 mkdir -p portainer
 mkdir -p prowlarr
 mkdir -p radarr
 mkdir -p sonarr
-mkdir -p speedtest
 mkdir -p tautulli
 
 # Create menu - Select and Move the PIA VPN files
@@ -301,12 +297,6 @@ rm delugevpn/config/core.conf~ > /dev/null 2>&1
 perl -i -pe 's/"allow_remote": false,/"allow_remote": true,/g'  delugevpn/config/core.conf
 perl -i -pe 's/"move_completed": false,/"move_completed": true,/g'  delugevpn/config/core.conf
 docker start delugevpn > /dev/null 2>&1
-
-# Configure FlareSolverr URL for Jackett
-while [ ! -f jackett/Jackett/ServerConfig.json ]; do sleep 1; done
-docker stop jackett > /dev/null 2>&1
-perl -i -pe 's/"FlareSolverrUrl": ".*",/"FlareSolverrUrl": "http:\/\/'"$locip"':8191",/g' jackett/Jackett/ServerConfig.json
-docker start jackett > /dev/null 2>&1
 
 # Configure NZBGet
 [ -d "content/nbzget" ] && mv content/nbzget/* content/ && rmdir content/nbzget

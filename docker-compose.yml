@@ -66,24 +66,6 @@ services:
         - './homer:/www/assets'
 
   # ----------------------------------------
-  # JACKETT
-  # ----------------------------------------
-  jackett:
-    image: lscr.io/linuxserver/jackett
-    container_name: jackett
-    restart: unless-stopped
-    network_mode: "bridge"
-    ports:
-        - '${IP_ADDRESS}:9117:9117'
-    environment:
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - TZ=${TZ}
-    volumes:
-        - './jackett:/config'
-        - '${DLDIR}/completed:/downloads'
-
-  # ----------------------------------------
   # LIDARR
   # ----------------------------------------
   lidarr:
@@ -120,41 +102,6 @@ services:
     volumes:
       - './nzbget:/config'
       - '${DLDIR}:/downloads'
-
-  # ----------------------------------------
-  # NZBHydra2
-  # ----------------------------------------
-  nzbhydra2:
-    image: lscr.io/linuxserver/nzbhydra2
-    container_name: nzbhydra2
-    restart: unless-stopped
-    environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TZ}
-    network_mode: 'bridge'
-    ports:
-      - '${IP_ADDRESS}:5076:5076'
-    volumes:
-      - './nzbhydra2:/config'
-      - '${DLDIR}:/downloads'
-
-  # ----------------------------------------
-  # OMBI
-  # ----------------------------------------
-  ombi:
-    image: lscr.io/linuxserver/ombi
-    container_name: ombi
-    restart: unless-stopped
-    network_mode: "bridge"
-    ports:
-        - '${IP_ADDRESS}:3579:3579'
-    environment:
-        - TZ=${TZ}
-        - PUID=${PUID}
-        - PGID=${PGID}
-    volumes:
-        - './ombi:/config'
 
   # ----------------------------------------
   # OVERSEERR
@@ -303,20 +250,3 @@ services:
         - './plex/Library/Application Support/Plex Media Server/Logs:/logs:ro'
     depends_on:
         - plex
-
-  # ----------------------------------------
-  # WATCHTOWER
-  # ----------------------------------------
-  watchtower:
-    image: containrrr/watchtower
-    container_name: watchtower
-    restart: unless-stopped
-    network_mode: "bridge"
-    hostname: '${HOSTNAME}'
-    environment:
-        - WATCHTOWER_CLEANUP=true
-        - WATCHTOWER_SCHEDULE=0 0 */4 * * *
-        - WATCHTOWER_INCLUDE_STOPPED=true
-        - TZ=${TZ}
-    volumes:
-        - '/var/run/docker.sock:/var/run/docker.sock'

@@ -51,14 +51,6 @@ icon = "muximux-home"
 color = "#0b5394"
 enabled = "true"
 
-[Jackett]
-name = "Jackett"
-url = "http://locip:9117"
-scale = 1
-icon = "muximux-jackett"
-color = "#000000"
-enabled = "true"
-
 [Lidarr]
 name = "Lidarr"
 url = "http://locip:8686"
@@ -73,22 +65,6 @@ url = "http://locip:6790"
 scale = 1
 icon = "muximux-download"
 color = "#3f8927"
-enabled = "true"
-
-[NZBHydra2]
-name = "NZBHydra2"
-url = "http://locip:5076"
-scale = 1
-icon = "muximux-nzbhydra"
-color = "#3f8927"
-enabled = "true"
-
-[Ombi]
-name = "Ombi"
-url = "http://locip:3579"
-scale = 1
-icon = "muximux-plex"
-color = "#f9be03"
 enabled = "true"
 
 [Overseerr]
