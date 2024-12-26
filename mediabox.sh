@@ -124,7 +124,6 @@ read -r -p "Where do you store your TV media? (Please use full path - /path/to/t
 read -r -p "Where do you store your MISC media? (Please use full path - /path/to/misc ): " miscdirectory
 read -r -p "Where do you store your MOVIE media? (Please use full path - /path/to/movies ): " moviedirectory
 read -r -p "Where do you store your MUSIC media? (Please use full path - /path/to/music ): " musicdirectory
-read -r -p "Where do you store your PHOTO media? (Please use full path - /path/to/photos ): " photoirectory
 fi
 if [ "$diranswer" == "n" ]; then
 read -r -p "Where do you store your DOWNLOADS? (Please use full path - /path/to/downloads ): " dldirectory
@@ -132,7 +131,6 @@ read -r -p "Where do you store your TV media? (Please use full path - /path/to/t
 read -r -p "Where do you store your MISC media? (Please use full path - /path/to/misc ): " miscdirectory
 read -r -p "Where do you store your MOVIE media? (Please use full path - /path/to/movies ): " moviedirectory
 read -r -p "Where do you store your MUSIC media? (Please use full path - /path/to/music ): " musicdirectory
-read -r -p "Where do you store your PHOTO media? (Please use full path - /path/to/photos ): " photodirectory
 fi
 
 # Create the directory structure
