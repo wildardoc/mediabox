@@ -66,9 +66,7 @@ services:
     network_mode: "bridge"
     ports:
         - '${IP_ADDRESS}:80:8080'
-    environment:
-        - UID=${PUID}
-        - GID=${PGID}
+    user: ${PUID}:${PGID}
     volumes:
         - './homer:/www/assets'
 
