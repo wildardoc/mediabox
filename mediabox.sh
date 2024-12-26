@@ -52,7 +52,6 @@ if [ -e 1.env ]; then
     miscdirectory=$(grep MISCDIR 1.env | cut -d = -f2)
     moviedirectory=$(grep MOVIEDIR 1.env | cut -d = -f2)
     musicdirectory=$(grep MUSICDIR 1.env | cut -d = -f2)
-    photodirectory=$(grep PHOTODIR 1.env | cut -d = -f2)
     # Echo back the media directioies, and other info to see if changes are needed
     printf "These are the Media Directory paths currently configured.\\n"
     printf "Your DOWNLOAD Directory is: %s \\n" "$dldirectory"
@@ -60,7 +59,6 @@ if [ -e 1.env ]; then
     printf "Your MISC Directory is: %s \\n" "$miscdirectory"
     printf "Your MOVIE Directory is: %s \\n" "$moviedirectory"
     printf "Your MUSIC Directory is: %s \\n" "$musicdirectory"
-    printf "Your PHOTO Directory is: %s \\n" "$photodirectory"
     printf "\\n\\n"
     read  -r -p "Are these directiores still correct? (y/n) " diranswer "$(echo \n)"
     printf "\\n\\n"
