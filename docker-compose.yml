@@ -106,28 +106,27 @@ services:
       - TZ=${TZ}
     network_mode: 'bridge'
     ports:
-      - '${IP_ADDRESS}:6790:6789'
+      - '${IP_ADDRESS}:6789:6789'
     volumes:
       - './nzbget:/config'
       - '${DLDIR}:/downloads'
 
   # ----------------------------------------
-  # OVERSEERR
+  # OMBI
   # ----------------------------------------
-  overseerr:
-    image: lscr.io/linuxserver/overseerr
-    container_name: overseerr
+  ombi:
+    image: lscr.io/linuxserver/ombi
+    container_name: ombi
     restart: unless-stopped
     network_mode: "bridge"
+    ports:
+        - '${IP_ADDRESS}:3579:3579'
     environment:
         - PUID=${PUID}
         - PGID=${PGID}
-        - LOG_LEVEL=info
-        - TZ=${TZ}
-    ports:
-        - ${IP_ADDRESS}:5055:5055
     volumes:
-        - ./overseerr:/config
+        - './ombi:/config'
+        - '/etc/localtime:/etc/localtime:ro'
 
   # ----------------------------------------
   # PLEX
@@ -136,7 +135,7 @@ services:
     container_name: plex
     image: plexinc/pms-docker:${PMSTAG}
     restart: unless-stopped
-    network_mode: "host"
+    network_mode: "bridge"
     ports:
         - '${IP_ADDRESS}:32400:32400/tcp'
         - '${IP_ADDRESS}:3005:3005/tcp'
@@ -160,9 +159,7 @@ services:
         - '${MISCDIR}:/data/misc'
         - '${MOVIEDIR}:/data/movies'
         - '${MUSICDIR}:/data/music'
-        - '/Storage/media/Movies_Ripped:/data/movies_ripped'
         - '${TVDIR}:/data/tvshows'
-        - '${PHOTODIR}:/data/photos'
 
   # ----------------------------------------
   # PORTAINER
