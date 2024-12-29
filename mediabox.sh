@@ -28,8 +28,9 @@ if [ -e .env ]; then
     git fetch
     if [ -n "$(git diff master origin/master)" ]; then
         git pull > /dev/null 2>&1
-        printf "\\n\\nMediabox.sh updated -- Please restart mediabox.sh.\\n\\n"
-        exit
+        printf "\\n\\nMediabox.sh updated -- Restarting mediabox.sh.\\n\\n"
+        restarted=1
+        ./mediabox.sh
     elif [ -e .env ]; then
         mv .env 1.env
     fi
@@ -92,6 +93,10 @@ time_zone=$(cat /etc/timezone)
 # Get CIDR Address
 slash=$(ip a | grep "$locip" | cut -d ' ' -f6 | awk -F '/' '{print $2}')
 lannet=$(awk -F"." '{print $1"."$2"."$3".0"}'<<<"$locip")/$slash
+
+if [ $restarted ]; then
+exit
+fi
 
 # Get Private Internet Access Info
 if [ -z "$piaanswer" ] || [ "$piaanswer" == "y" ]; then
