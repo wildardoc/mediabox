@@ -4,6 +4,8 @@ Mediabox is an all Docker Container based media aggregator stack.
 
 This version is based on https://github.com/tom472/mediabox
 
+I did not use all of the containers so this is an abbreviated group.
+
 Components include:
 
 * [Deluge torrent client (using VPN)](http://deluge-torrent.org/)
