@@ -87,7 +87,7 @@ DOCKERGRP=$(grep docker /etc/group | cut -d ':' -f 3)
 # Get Hostname
 thishost=$(hostname)
 # Get IP Address
-locip=$(hostname -I | awk '{print $1}')
+locip=$(hostname -I | awk '{print $2}')
 # Get Time Zone
 time_zone=$(cat /etc/timezone)	
 # Get CIDR Address
