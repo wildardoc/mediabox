@@ -1,6 +1,8 @@
 # Mediabox
 
-Mediabox is an all Docker Container based media aggregator stack.
+Mediabox is an all Docker Container based media aggregator stack. 
+
+This version is based on https://github.com/tom472/mediabox
 
 Components include:
 
