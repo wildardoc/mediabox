@@ -27,7 +27,7 @@ if [ -e .env ]; then
     git stash > /dev/null 2>&1
     git pull
     if git diff-tree --no-commit-id --name-only -r HEAD | grep -q "mediabox.sh"; then
-        printf "Mediabox.sh updated -- Please restart mediabox.sh"
+        printf "Mediabox.sh updated -- Please restart mediabox.sh.\\n\\n"
         exit
     elif [ -e .env ]; then
         mv .env 1.env
