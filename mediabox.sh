@@ -26,7 +26,7 @@ if [ -e .env ]; then
     printf "If this file 'mediabox.sh' is updated it will be re-run automatically.\\n\\n"
     git stash > /dev/null 2>&1
     git fetch
-    if [ $(git diff master origin/master) != null ]; then
+    if [ $(git diff master origin/master) != "" ]; then
         git pull
         printf "Mediabox.sh updated -- Please restart mediabox.sh.\\n\\n"
         exit
