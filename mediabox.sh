@@ -165,7 +165,6 @@ mkdir -p historical/env_files
 mkdir -p homer
 mkdir -p lidarr
 mkdir -p nzbget
-mkdir -p overseerr
 mkdir -p "plex/Library/Application Support/Plex Media Server/Logs"
 mkdir -p portainer
 mkdir -p prowlarr
