@@ -6,7 +6,7 @@ This version is based on https://github.com/tom472/mediabox
 
 I did not use all of the containers so this is an abbreviated group.
 
-Components include:
+Components included are:
 
 * [Deluge torrent client (using VPN)](http://deluge-torrent.org/)
 * [Homer - Server Home Page](https://github.com/bastienwirtz/homer)
