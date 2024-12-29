@@ -28,11 +28,9 @@ if [ -e .env ]; then
     git pull
     if git diff-tree --no-commit-id --name-only -r HEAD | grep -q "mediabox.sh"; then
         mv .env 1.env
-        printf "Restarting mediabox.sh"
+        printf "Mediabox.sh updated -- Please restart mediabox.sh"
         ./mediabox.sh
-    fi
-    if [ -z "$(git diff-tree --no-commit-id --name-only -r HEAD)" ]; then
-        printf "Your Mediabox is current - No Update needed.\\n\\n"
+    elif [ -e .env ]; then
         mv .env 1.env
     fi
 fi
