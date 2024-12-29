@@ -28,7 +28,7 @@ if [ -e .env ]; then
     git fetch
     if [ -n "$(git diff master origin/master)" ]; then
         git pull
-        printf "Mediabox.sh updated -- Please restart mediabox.sh.\\n\\n"
+        printf "\\n\\nMediabox.sh updated -- Please restart mediabox.sh.\\n\\n"
         exit
     elif [ -e .env ]; then
         mv .env 1.env
