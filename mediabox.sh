@@ -27,7 +27,7 @@ if [ -e .env ]; then
     git stash > /dev/null 2>&1
     git fetch
     if [ -n "$(git diff master origin/master)" ]; then
-        git pull
+        git pull > /dev/null 2>&1
         printf "\\n\\nMediabox.sh updated -- Please restart mediabox.sh.\\n\\n"
         exit
     elif [ -e .env ]; then
