@@ -88,7 +88,7 @@ DOCKERGRP=$(grep docker /etc/group | cut -d ':' -f 3)
 thishost=$(hostname)
 # Get IP Address
 # $1 will give true local IP; $2 gives me my Zerotier network IP
-locip=$(hostname -I | awk '{print $2}')
+locip=$(hostname -I | awk '{print $1}')
 # Get Time Zone
 time_zone=$(cat /etc/timezone)	
 # Get CIDR Address
