@@ -160,10 +160,6 @@ if [ -z "$musicdirectory" ]; then
     mkdir -p content/music
     musicdirectory="$PWD/content/music"
 fi
-if [ -z "$photodirectory" ]; then
-    mkdir -p content/photo
-    photodirectory="$PWD/content/photo"
-fi
 
 mkdir -p delugevpn
 mkdir -p delugevpn/config/openvpn
@@ -238,7 +234,6 @@ echo "TVDIR=$tvdirectory"
 echo "MISCDIR=$miscdirectory"
 echo "MOVIEDIR=$moviedirectory"
 echo "MUSICDIR=$musicdirectory"
-echo "PHOTODIR=$photodirectory"
 echo "PIAUNAME=$piauname"
 echo "PIAPASS=$piapass"
 echo "CIDR_ADDRESS=$lannet"
