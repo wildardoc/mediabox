@@ -97,7 +97,7 @@ services:
   maintainerr:
     image: ghcr.io/jorenn92/maintainerr:latest 
     container_name: maintainerr
-    user: ${PUID}:${GUID}
+    user: ${PUID}:${PGID}
     volumes:
          - './maintainerr:/opt/data'
     network_mode: 'bridge' 
