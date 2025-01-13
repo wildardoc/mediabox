@@ -96,6 +96,7 @@ services:
   # ----------------------------------------
   maintainerr:
     image: ghcr.io/jorenn92/maintainerr:latest 
+    container_name: maintainerr
     user: ${PUID}:${GUID}
     volumes:
          - './maintainerr:/opt/data'

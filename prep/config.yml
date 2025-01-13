@@ -118,7 +118,7 @@ services:
         url: "https://locip:9443"
         target: "_blank"
       - name: "Maintainerr"
-        logo: "assets/icons/maintainerr.png
+        logo: "assets/icons/maintainerr.png"
         tag: "monitor"
         tagstyle: "is-danger"
         url: "http://locip:6246"
