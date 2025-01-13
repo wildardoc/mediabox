@@ -94,19 +94,19 @@ services:
   # ----------------------------------------
   # Maintainerr
   # ----------------------------------------
-    maintainerr:
-        image: ghcr.io/jorenn92/maintainerr:latest 
-        user: 972:972
-        volumes:
-          - type: bind
-            source: ./maintainerr 
-            target: /opt/data
-        environment:
-          - TZ=America/Central
-   #      - DEBUG=true # uncomment (remove the hashtag) to enable debug logs
-        ports:
-          - 6246:6246 
-        restart: unless-stopped
+  maintainerr:
+    image: ghcr.io/jorenn92/maintainerr:latest 
+    user: ${PUID}:${GUID}
+    volumes:
+      - "./maintainerr:/opt/data"
+    network_mode: 'bridge' 
+    environment:
+       - TZ=America/Central
+   #   - DEBUG=true # uncomment (remove the hashtag) to enable debug logs
+    ports:
+       - '${IP_ADDRESS}:6246:6246 
+    restart: unless-stopped
+
   # ----------------------------------------
   # NZBGet
   # ----------------------------------------
