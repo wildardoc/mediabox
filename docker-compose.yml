@@ -92,6 +92,22 @@ services:
         - '/etc/localtime:/etc/localtime:ro'
 
   # ----------------------------------------
+  # Maintainerr
+  # ----------------------------------------
+    maintainerr:
+        image: ghcr.io/jorenn92/maintainerr:latest 
+        user: 972:972
+        volumes:
+          - type: bind
+            source: ./maintainerr 
+            target: /opt/data
+        environment:
+          - TZ=America/Central
+   #      - DEBUG=true # uncomment (remove the hashtag) to enable debug logs
+        ports:
+          - 6246:6246 
+        restart: unless-stopped
+  # ----------------------------------------
   # NZBGet
   # ----------------------------------------
   nzbget:

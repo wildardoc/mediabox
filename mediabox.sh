@@ -166,6 +166,7 @@ mkdir -p delugevpn/config/openvpn
 mkdir -p historical/env_files
 mkdir -p homer
 mkdir -p lidarr
+mkdir -p maintainerr
 mkdir -p nzbget
 mkdir -p "plex/Library/Application Support/Plex Media Server/Logs"
 mkdir -p portainer
