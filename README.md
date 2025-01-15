@@ -12,6 +12,7 @@ Components included in this repo are:
 * [Homer - Server Home Page](https://github.com/bastienwirtz/homer)
 * [Homer Icons - Icons for Homer](https://github.com/NX211/homer-icons)
 * [Lidarr Music collection manager](https://lidarr.audio/)
+* [Maintainerr Media Manager](https://maintainerr.info/)
 * [NZBGet Usenet Downloader](https://nzbget.net/)  
 * [Ombi media assistant](http://www.ombi.io/)
 * [Plex media server](https://www.plex.tv/)
