@@ -77,7 +77,7 @@ services:
         target: "_blank"
       - name: "Ombi"
         logo: "assets/icons/ombi.png"
-        tag: "manage"
+        tag: "get"
         tagstyle: "is-info"
         url: "http://locip:3579"
         target: "_blank"
