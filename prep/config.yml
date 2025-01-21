@@ -78,7 +78,7 @@ services:
       - name: "Ombi"
         logo: "assets/icons/ombi.png"
         tag: "get"
-        tagstyle: "is-info"
+        tagstyle: "is -info"
         url: "http://locip:3579"
         target: "_blank"
       - name: "Prowlarr"
