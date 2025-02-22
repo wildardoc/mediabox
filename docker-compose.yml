@@ -135,7 +135,7 @@ services:
     restart: unless-stopped
     network_mode: "bridge"
     ports:
-        - '${IP_ADDRESS}:3579:3579'
+        - '${PLEX_IP_ADDRESS}:3579:3579'
     environment:
         - PUID=${PUID}
         - PGID=${PGID}
