@@ -162,7 +162,7 @@ services:
         - '${PLEX_IP_ADDRESS}:32413:32413/udp'
         - '${PLEX_IP_ADDRESS}:32414:32414/udp'
     environment:
-        - ADVERTISE_IP=http://${IP_ADDRESS}:32400/
+        - ADVERTISE_IP=http://${PLEX_IP_ADDRESS}:32400/
         - ALLOWED_NETWORKS=${CIDR_ADDRESS}
         - PLEX_UID=${PUID}
         - PLEX_GID=${PGID}
