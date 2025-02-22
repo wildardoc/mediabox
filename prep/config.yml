@@ -79,7 +79,7 @@ services:
         logo: "assets/icons/ombi.png"
         tag: "get"
         tagstyle: "is -info"
-        url: "http://plexcip:3579"
+        url: "http://plexip:3579"
         target: "_blank"
       - name: "Prowlarr"
         logo: "assets/icons/prowlarr.png"
