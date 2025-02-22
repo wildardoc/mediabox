@@ -25,14 +25,13 @@ if [ -e .env ]; then
     printf "Updating your local copy of Mediabox.\\n\\n"
     printf "If this file 'mediabox.sh' is updated it will be re-run automatically.\\n\\n"
     git stash > /dev/null 2>&1
-    git pull
-    if git diff-tree --no-commit-id --name-only -r HEAD | grep -q "mediabox.sh"; then
-        mv .env 1.env
-        printf "Restarting mediabox.sh"
+    git fetch
+    if [ -n "$(git diff master origin/master)" ]; then
+        git pull > /dev/null 2>&1
+        printf "\\n\\nMediabox.sh updated -- Restarting mediabox.sh.\\n\\n"
+        restarted=1
         ./mediabox.sh
-    fi
-    if [ -z "$(git diff-tree --no-commit-id --name-only -r HEAD)" ]; then
-        printf "Your Mediabox is current - No Update needed.\\n\\n"
+    elif [ -e .env ]; then
         mv .env 1.env
     fi
 fi
@@ -52,7 +51,6 @@ if [ -e 1.env ]; then
     miscdirectory=$(grep MISCDIR 1.env | cut -d = -f2)
     moviedirectory=$(grep MOVIEDIR 1.env | cut -d = -f2)
     musicdirectory=$(grep MUSICDIR 1.env | cut -d = -f2)
-    photodirectory=$(grep PHOTODIR 1.env | cut -d = -f2)
     # Echo back the media directioies, and other info to see if changes are needed
     printf "These are the Media Directory paths currently configured.\\n"
     printf "Your DOWNLOAD Directory is: %s \\n" "$dldirectory"
@@ -60,7 +58,6 @@ if [ -e 1.env ]; then
     printf "Your MISC Directory is: %s \\n" "$miscdirectory"
     printf "Your MOVIE Directory is: %s \\n" "$moviedirectory"
     printf "Your MUSIC Directory is: %s \\n" "$musicdirectory"
-    printf "Your PHOTO Directory is: %s \\n" "$photodirectory"
     printf "\\n\\n"
     read  -r -p "Are these directiores still correct? (y/n) " diranswer "$(echo \n)"
     printf "\\n\\n"
@@ -90,12 +87,18 @@ DOCKERGRP=$(grep docker /etc/group | cut -d ':' -f 3)
 # Get Hostname
 thishost=$(hostname)
 # Get IP Address
-locip=$(hostname -I | awk '{print $1}')
+# $1 will give true local IP; $2 gives me my Zerotier network IP
+locip=$(hostname -I | awk '{print $2}')
+plexip=$(hostname -I | awk '{print $1}')
 # Get Time Zone
 time_zone=$(cat /etc/timezone)	
 # Get CIDR Address
 slash=$(ip a | grep "$locip" | cut -d ' ' -f6 | awk -F '/' '{print $2}')
 lannet=$(awk -F"." '{print $1"."$2"."$3".0"}'<<<"$locip")/$slash
+
+if [ $restarted ]; then
+exit
+fi
 
 # Get Private Internet Access Info
 if [ -z "$piaanswer" ] || [ "$piaanswer" == "y" ]; then
@@ -124,7 +127,6 @@ read -r -p "Where do you store your TV media? (Please use full path - /path/to/t
 read -r -p "Where do you store your MISC media? (Please use full path - /path/to/misc ): " miscdirectory
 read -r -p "Where do you store your MOVIE media? (Please use full path - /path/to/movies ): " moviedirectory
 read -r -p "Where do you store your MUSIC media? (Please use full path - /path/to/music ): " musicdirectory
-read -r -p "Where do you store your PHOTO media? (Please use full path - /path/to/photos ): " photoirectory
 fi
 if [ "$diranswer" == "n" ]; then
 read -r -p "Where do you store your DOWNLOADS? (Please use full path - /path/to/downloads ): " dldirectory
@@ -132,7 +134,6 @@ read -r -p "Where do you store your TV media? (Please use full path - /path/to/t
 read -r -p "Where do you store your MISC media? (Please use full path - /path/to/misc ): " miscdirectory
 read -r -p "Where do you store your MOVIE media? (Please use full path - /path/to/movies ): " moviedirectory
 read -r -p "Where do you store your MUSIC media? (Please use full path - /path/to/music ): " musicdirectory
-read -r -p "Where do you store your PHOTO media? (Please use full path - /path/to/photos ): " photodirectory
 fi
 
 # Create the directory structure
@@ -160,18 +161,14 @@ if [ -z "$musicdirectory" ]; then
     mkdir -p content/music
     musicdirectory="$PWD/content/music"
 fi
-if [ -z "$photodirectory" ]; then
-    mkdir -p content/photo
-    photodirectory="$PWD/content/photo"
-fi
 
 mkdir -p delugevpn
 mkdir -p delugevpn/config/openvpn
 mkdir -p historical/env_files
 mkdir -p homer
 mkdir -p lidarr
+mkdir -p maintainerr
 mkdir -p nzbget
-mkdir -p overseerr
 mkdir -p "plex/Library/Application Support/Plex Media Server/Logs"
 mkdir -p portainer
 mkdir -p prowlarr
@@ -230,6 +227,7 @@ EOF
 echo "LOCALUSER=$localuname"
 echo "HOSTNAME=$thishost"
 echo "IP_ADDRESS=$locip"
+echo "PLEX_IP_ADDRESS=$plexip"
 echo "PUID=$PUID"
 echo "PGID=$PGID"
 echo "DOCKERGRP=$DOCKERGRP"
@@ -239,7 +237,6 @@ echo "TVDIR=$tvdirectory"
 echo "MISCDIR=$miscdirectory"
 echo "MOVIEDIR=$moviedirectory"
 echo "MUSICDIR=$musicdirectory"
-echo "PHOTODIR=$photodirectory"
 echo "PIAUNAME=$piauname"
 echo "PIAPASS=$piapass"
 echo "CIDR_ADDRESS=$lannet"
@@ -327,6 +324,8 @@ sed '/^PIA/d' < .env > homer/env.txt # Pull PIA creds from the displayed .env fi
 perl -i -pe "s/thishost/$thishost/g" homer/config.yml
 perl -i -pe "s/locip/$locip/g" homer/config.yml
 perl -i -pe "s/locip/$locip/g" homer/mediaboxconfig.html
+perl -i -pe "s/plexip/$plexip/g" homer/config.yml
+perl -i -pe "s/plexip/$plexip/g" homer/mediaboxconfig.html
 perl -i -pe "s/daemonun/$daemonun/g" homer/mediaboxconfig.html
 perl -i -pe "s/daemonpass/$daemonpass/g" homer/mediaboxconfig.html
 docker start homer > /dev/null 2>&1

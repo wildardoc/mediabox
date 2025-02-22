@@ -59,6 +59,14 @@ icon = "muximux-music"
 color = "#93c47d"
 enabled = "true"
 
+[Maintainerr]
+name = "Maintainerr"
+url = "http://locip:6246"
+scale = 1
+icon = "muximux-search"
+color = "#93c47d"
+enabled = "true"
+
 [NZBGet]
 name = "NZBGet"
 url = "http://locip:6790"
@@ -77,7 +85,7 @@ enabled = "true"
 
 [Plex]
 name = "Plex"
-url = "http://locip:32400/web"
+url = "http://plexip:32400/web"
 scale = 1
 icon = "muximux-plex"
 color = "#df691a"

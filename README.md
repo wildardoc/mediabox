@@ -1,18 +1,20 @@
 # Mediabox
 
-Mediabox is an all Docker Container based media aggregator stack.
+Mediabox is an all Docker Container based media aggregator stack. 
 
-Components include:
+This version is based on https://github.com/tom472/mediabox
+
+I did not use all of the containers so this is an abbreviated group.
+
+Components included in this repo are:
 
 * [Deluge torrent client (using VPN)](http://deluge-torrent.org/)
 * [Homer - Server Home Page](https://github.com/bastienwirtz/homer)
 * [Homer Icons - Icons for Homer](https://github.com/NX211/homer-icons)
-* [Jackett Tracker API and Proxy](https://github.com/Jackett/Jackett)
 * [Lidarr Music collection manager](https://lidarr.audio/)
+* [Maintainerr Media Manager](https://maintainerr.info/)
 * [NZBGet Usenet Downloader](https://nzbget.net/)  
-* [NZBHydra2 Meta Search](https://github.com/theotherp/nzbhydra2)  
 * [Ombi media assistant](http://www.ombi.io/)
-* [Overseerr Media Library Request Management](https://github.com/sct/overseerr)
 * [Plex media server](https://www.plex.tv/)
 * [Portainer Docker Container manager](https://portainer.io/)
 * [Prowlarr indexer manager/proxy](https://github.com/Prowlarr/Prowlarr)
