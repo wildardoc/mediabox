@@ -324,6 +324,8 @@ sed '/^PIA/d' < .env > homer/env.txt # Pull PIA creds from the displayed .env fi
 perl -i -pe "s/thishost/$thishost/g" homer/config.yml
 perl -i -pe "s/locip/$locip/g" homer/config.yml
 perl -i -pe "s/locip/$locip/g" homer/mediaboxconfig.html
+perl -i -pe "s/plexip/$plexip/g" homer/config.yml
+perl -i -pe "s/plexip/$plexip/g" homer/mediaboxconfig.html
 perl -i -pe "s/daemonun/$daemonun/g" homer/mediaboxconfig.html
 perl -i -pe "s/daemonpass/$daemonpass/g" homer/mediaboxconfig.html
 docker start homer > /dev/null 2>&1
