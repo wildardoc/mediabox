@@ -85,7 +85,7 @@ enabled = "true"
 
 [Plex]
 name = "Plex"
-url = "http://locip:32400/web"
+url = "http://plexip:32400/web"
 scale = 1
 icon = "muximux-plex"
 color = "#df691a"
