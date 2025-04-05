@@ -59,7 +59,15 @@ icon = "muximux-music"
 color = "#93c47d"
 enabled = "true"
 
-[NZBGet]
+[[Maintainerr]
+name = "Maintainerr"
+url = "http://locip:6246"
+scale = 1
+icon = "muximux-search"
+color = "#93c47d"
+enabled = "true"
+
+NZBGet]
 name = "NZBGet"
 url = "http://locip:6790"
 scale = 1
