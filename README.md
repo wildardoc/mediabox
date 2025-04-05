@@ -9,6 +9,7 @@ Components include:
 * [Homer Icons - Icons for Homer](https://github.com/NX211/homer-icons)
 * [Jackett Tracker API and Proxy](https://github.com/Jackett/Jackett)
 * [Lidarr Music collection manager](https://lidarr.audio/)
+* [Maintainerr Media Manager](https://maintainerr.info/)
 * [NZBGet Usenet Downloader](https://nzbget.net/)  
 * [NZBHydra2 Meta Search](https://github.com/theotherp/nzbhydra2)  
 * [Ombi media assistant](http://www.ombi.io/)
