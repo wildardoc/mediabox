@@ -178,6 +178,7 @@ mkdir -p prowlarr
 mkdir -p radarr
 mkdir -p sonarr
 mkdir -p tautulli
+mkdir -p maintainerr
 
 # Create menu - Select and Move the PIA VPN files
 echo "The following PIA Servers are avialable that support port-forwarding (for DelugeVPN); Please select one:"
