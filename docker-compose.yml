@@ -253,7 +253,7 @@ services:
     network_mode: 'bridge' 
     environment:
          - TZ=${TZ}
-   #   - DEBUG=true # uncomment (remove the hashtag) to enable debug logs
+    #   - DEBUG=true # uncomment (remove the hashtag) to enable debug logs
     ports:
          - '${IP_ADDRESS}:6246:6246' 
     restart: unless-stopped
