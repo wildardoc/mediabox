@@ -339,4 +339,28 @@ for i in $(docker ps --format {{.Names}} | sort); do printf "\n === $i Ports ===
 printf "Setup Complete - Open a browser and go to: \\n\\n"
 printf "http://%s \\nOR http://%s If you have appropriate DNS configured.\\n\\n" "$locip" "$thishost"
 
+INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+VENV_DIR="$INSTALL_DIR/.venv"
+REQ_FILE="$INSTALL_DIR/requirements.txt"
+PY_FILE="$INSTALL_DIR/media_update.py"
+IMPORT_SH="$INSTALL_DIR/import.sh"
+PY_SCRIPT="$INSTALL_DIR/media_update.py"
+
+# Create virtual environment if it doesn't exist
+if [ ! -d "$VENV_DIR" ]; then
+    python3 -m venv "$VENV_DIR"
+fi
+
+# Install required packages
+source "$VENV_DIR/bin/activate"
+pip install --upgrade pip
+pip install -r "$REQ_FILE"
+deactivate
+
+# Update media_update.py with the venv path
+sed -i "s|^venv_path = .*|venv_path = \"$VENV_DIR\"|" "$PY_FILE"
+
+# Update PY_SCRIPT path in import.sh
+sed -i "s|^PY_SCRIPT=.*|PY_SCRIPT=\"$PY_SCRIPT\"|" "$IMPORT_SH"
+
 exit
