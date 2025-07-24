@@ -1,5 +1,7 @@
 README.md
 content
+.venv
+media_update_??????????????.log
 
 ### Windows ###
 # Windows thumbnail cache files
@@ -41,3 +43,4 @@ radarr/
 sabnzbd/
 sonarr/
 tautulli/
+maintainerr/
