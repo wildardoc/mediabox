@@ -31,11 +31,19 @@ def get_video_files(root_dir):
     files = []
     for dirpath, _, filenames in os.walk(root_dir):
         for filename in filenames:
-            if filename.lower().endswith(video_exts):
+            if filename.lower().endswith(video_exts) and not filename.endswith('_converted.mp4'):
                 files.append(os.path.join(dirpath, filename))
     return files
 
-def build_ffmpeg_command(input_file, output_file, probe=None):
+def build_ffmpeg_command(input_file, probe=None):
+    """
+    Build ffmpeg command-line arguments for transcoding the input file.
+    Args:
+        input_file (str): Path to the input media file.
+        probe (dict, optional): ffmpeg.probe result. If None, probe will be called.
+    Returns:
+        list: A list of ffmpeg command-line arguments (excluding 'ffmpeg' and '-i' input).
+    """
     if probe is None:
         try:
             probe = ffmpeg.probe(input_file)
@@ -43,23 +51,20 @@ def build_ffmpeg_command(input_file, output_file, probe=None):
             print("ffprobe error:", e.stderr.decode())
             logging.error(f"ffprobe error for {input_file}: {e.stderr.decode()}")
             raise
-    audio_streams = []
+
     surround_idx = None
-    surround_channels = 0
-    subtitle_maps = []
-    subtitle_codecs = []
+    surround_candidates = []
     eng_subs = []
     forced_subs = []
 
-    # Find surround sound audio stream (5.1 or more channels)
+    # Find surround sound audio streams and subtitle streams
     for stream in probe['streams']:
         if stream['codec_type'] == 'audio':
             channels = int(stream.get('channels', 0))
             idx = stream['index']
             lang = stream.get('tags', {}).get('language', '').lower()
-            if channels >= 6 and surround_idx is None:
-                surround_idx = idx
-                surround_channels = channels
+            if channels >= 6:
+                surround_candidates.append((idx, lang))
         elif stream['codec_type'] == 'subtitle':
             idx = stream['index']
             lang = stream.get('tags', {}).get('language', '').lower()
@@ -68,6 +73,30 @@ def build_ffmpeg_command(input_file, output_file, probe=None):
                 forced_subs.append(idx)
             if lang == 'eng':
                 eng_subs.append(idx)
+
+    # Prefer English surround, then unlabeled, else log/print available
+    if surround_candidates:
+        # Try to find English surround
+        for idx, lang in surround_candidates:
+            if lang == 'eng':
+                surround_idx = idx
+                break
+        # If not found, try to find one with no language label
+        if surround_idx is None:
+            for idx, lang in surround_candidates:
+                if not lang:
+                    surround_idx = idx
+                    break
+        # If still not found, flag and log all available surround streams
+        if surround_idx is None:
+            msg = (
+                f"No English surround audio found. "
+                f"Available surround streams: {[(idx, lang) for idx, lang in surround_candidates]}"
+            )
+            print(msg)
+            logging.warning(msg)
+            # Optionally, pick the first surround as fallback
+            surround_idx = surround_candidates[0][0]
 
     # Audio mapping
     audio_maps = []
@@ -121,7 +150,13 @@ def build_ffmpeg_command(input_file, output_file, probe=None):
 def transcode_file(input_file):
     base, _ = os.path.splitext(input_file)
     output_file = base + '_converted.mp4'
-    
+
+    # Skip if output already exists
+    if os.path.exists(output_file):
+        print(f"Skipping: {output_file} already exists.")
+        logging.info(f"Skipping: {output_file} already exists.")
+        return
+
     # Optional: Check if already H.264/AAC MP4
     try:
         probe = ffmpeg.probe(input_file)
@@ -135,14 +170,14 @@ def transcode_file(input_file):
     except ffmpeg.Error as e:
         print(f"ffprobe error for {input_file}: {e.stderr.decode()}")
         logging.warning(f"ffprobe error for {input_file}: {e.stderr.decode()}")
-        raise
+        raise  # <--- This will prevent transcoding invalid files
     except Exception as e:
         print(f"Unexpected error probing {input_file}, will attempt to transcode. Reason: {e}")
         logging.warning(f"Unexpected error probing {input_file}, will attempt to transcode. Reason: {e}")
         probe = None
 
     print(f"Transcoding: {input_file} -> {output_file}")
-    args = build_ffmpeg_command(input_file, output_file, probe)
+    args = build_ffmpeg_command(input_file, probe)
     cmd = ['ffmpeg', '-i', input_file] + args + [output_file]
     logging.info(f"Transcoding: {input_file} -> {output_file}")
     logging.info("Command: " + " ".join(cmd))
