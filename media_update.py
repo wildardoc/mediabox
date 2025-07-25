@@ -35,13 +35,14 @@ def get_video_files(root_dir):
                 files.append(os.path.join(dirpath, filename))
     return files
 
-def build_ffmpeg_command(input_file, output_file):
-    try:
-        probe = ffmpeg.probe(input_file)
-    except ffmpeg.Error as e:
-        print("ffprobe error:", e.stderr.decode())
-        logging.error(f"ffprobe error for {input_file}: {e.stderr.decode()}")
-        raise
+def build_ffmpeg_command(input_file, output_file, probe=None):
+    if probe is None:
+        try:
+            probe = ffmpeg.probe(input_file)
+        except ffmpeg.Error as e:
+            print("ffprobe error:", e.stderr.decode())
+            logging.error(f"ffprobe error for {input_file}: {e.stderr.decode()}")
+            raise
     audio_streams = []
     surround_idx = None
     surround_channels = 0
@@ -120,8 +121,28 @@ def build_ffmpeg_command(input_file, output_file):
 def transcode_file(input_file):
     base, _ = os.path.splitext(input_file)
     output_file = base + '_converted.mp4'
+    
+    # Optional: Check if already H.264/AAC MP4
+    try:
+        probe = ffmpeg.probe(input_file)
+        vcodec = next((s['codec_name'] for s in probe['streams'] if s['codec_type'] == 'video'), None)
+        audio_codecs = [s['codec_name'] for s in probe['streams'] if s['codec_type'] == 'audio']
+        all_aac = all(codec == 'aac' for codec in audio_codecs) if audio_codecs else True
+        if vcodec == 'h264' and all_aac and input_file.lower().endswith('.mp4'):
+            print(f"Skipping: {input_file} is already H.264/AAC MP4.")
+            logging.info(f"Skipping: {input_file} is already H.264/AAC MP4.")
+            return
+    except ffmpeg.Error as e:
+        print(f"ffprobe error for {input_file}: {e.stderr.decode()}")
+        logging.warning(f"ffprobe error for {input_file}: {e.stderr.decode()}")
+        raise
+    except Exception as e:
+        print(f"Unexpected error probing {input_file}, will attempt to transcode. Reason: {e}")
+        logging.warning(f"Unexpected error probing {input_file}, will attempt to transcode. Reason: {e}")
+        probe = None
+
     print(f"Transcoding: {input_file} -> {output_file}")
-    args = build_ffmpeg_command(input_file, output_file)
+    args = build_ffmpeg_command(input_file, output_file, probe)
     cmd = ['ffmpeg', '-i', input_file] + args + [output_file]
     logging.info(f"Transcoding: {input_file} -> {output_file}")
     logging.info("Command: " + " ".join(cmd))
