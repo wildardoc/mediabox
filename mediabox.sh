@@ -357,10 +357,12 @@ pip install --upgrade pip
 pip install -r "$REQ_FILE"
 deactivate
 
-# Update media_update.py with the venv path
-sed -i "s|^venv_path = .*|venv_path = \"$VENV_DIR\"|" "$PY_FILE"
-
-# Update PY_SCRIPT path in import.sh
-sed -i "s|^PY_SCRIPT=.*|PY_SCRIPT=\"$PY_SCRIPT\"|" "$IMPORT_SH"
+cat > "$INSTALL_DIR/mediabox_config.json" <<EOF
+{
+  "venv_path": "$VENV_DIR",
+  "download_dirs": ["$dldirectory/completed", "$dldirectory/incomplete"],
+  "media_library_dirs": ["$tvdirectory", "$moviedirectory", "$musicdirectory", "$miscdirectory"]
+}
+EOF
 
 exit

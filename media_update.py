@@ -1,14 +1,26 @@
 #!/usr/bin/env python3
 import sys
 import os
+import atexit
+import signal
+import json
 
-# Ensure venv packages are available even if not activated
-venv_path = "/Storage/docker/mediabox/.venv"  # This line will be updated by mediabox.sh
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "mediabox_config.json")
+with open(CONFIG_PATH, "r") as f:
+    config = json.load(f)
+
+venv_path = config["venv_path"]
+DOWNLOAD_DIRS = config["download_dirs"]
+MEDIA_LIBRARY_DIRS = config["media_library_dirs"]
+
 site_packages = os.path.join(
     venv_path, "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages"
 )
 if site_packages not in sys.path:
     sys.path.insert(0, site_packages)
+
+os.environ["VIRTUAL_ENV"] = venv_path
+os.environ["PATH"] = os.path.join(venv_path, "bin") + os.pathsep + os.environ.get("PATH", "")
 
 import ffmpeg
 import logging
@@ -25,6 +37,22 @@ now = datetime.now()
 dt_string = now.strftime("%Y%m%d%H%M%S")
 logfilename = f"media_update_{dt_string}.log"
 logging.basicConfig(filename=logfilename, filemode='w', format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
+
+# Global variable to track the output file
+unfinished_output_file = None
+
+def cleanup_unfinished_file():
+    if unfinished_output_file and os.path.exists(unfinished_output_file):
+        try:
+            os.remove(unfinished_output_file)
+            print(f"Removed unfinished file: {unfinished_output_file}")
+        except Exception as e:
+            print(f"Could not remove unfinished file: {unfinished_output_file}: {e}")
+
+# Register cleanup for normal exit and signals
+atexit.register(cleanup_unfinished_file)
+for sig in (signal.SIGINT, signal.SIGTERM):
+    signal.signal(sig, lambda signum, frame: (cleanup_unfinished_file(), exit(1)))
 
 def get_video_files(root_dir):
     video_exts = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv')
@@ -56,23 +84,34 @@ def build_ffmpeg_command(input_file, probe=None):
     surround_candidates = []
     eng_subs = []
     forced_subs = []
+    audio_lang_metadata = []
+    subtitle_lang_metadata = []
 
     # Find surround sound audio streams and subtitle streams
     for stream in probe['streams']:
         if stream['codec_type'] == 'audio':
-            channels = int(stream.get('channels', 0))
             idx = stream['index']
             lang = stream.get('tags', {}).get('language', '').lower()
+            if not lang:
+                audio_lang_metadata.append(f'-metadata:s:a:{idx} language=eng')
+            channels = int(stream.get('channels', 0))
             if channels >= 6:
                 surround_candidates.append((idx, lang))
         elif stream['codec_type'] == 'subtitle':
             idx = stream['index']
             lang = stream.get('tags', {}).get('language', '').lower()
-            disposition = stream.get('disposition', {})
-            if disposition.get('forced', 0) == 1:
-                forced_subs.append(idx)
-            if lang == 'eng':
-                eng_subs.append(idx)
+            codec = stream.get('codec_name', '').lower()
+            # Only include text-based subtitles for MP4
+            if codec in ('subrip', 'srt', 'ass', 'ssa', 'mov_text'):
+                if not lang:
+                    subtitle_lang_metadata.append(f'-metadata:s:s:{idx} language=eng')
+                disposition = stream.get('disposition', {})
+                if disposition.get('forced', 0) == 1:
+                    forced_subs.append(idx)
+                if lang == 'eng':
+                    eng_subs.append(idx)
+            elif codec == 'hdmv_pgs_subtitle':
+                logging.warning(f"Skipping PGS subtitle stream {idx} for MP4 output: not supported.")
 
     # Prefer English surround, then unlabeled, else log/print available
     if surround_candidates:
@@ -121,7 +160,7 @@ def build_ffmpeg_command(input_file, probe=None):
                 audio_labels += ['-metadata:s:a:0', 'title=Stereo']
                 break
 
-    # Subtitle mapping (forced and English)
+    # Subtitle mapping (forced and English, only text-based)
     subtitle_maps = []
     subtitle_codecs = []
     sub_idx = 0
@@ -139,6 +178,8 @@ def build_ffmpeg_command(input_file, probe=None):
         *audio_labels,
         *subtitle_maps,
         *subtitle_codecs,
+        *audio_lang_metadata,
+        *subtitle_lang_metadata,
         '-c:v', 'libx264',
         '-crf', '23',
         '-c:a', 'aac',
@@ -150,6 +191,8 @@ def build_ffmpeg_command(input_file, probe=None):
 def transcode_file(input_file):
     base, _ = os.path.splitext(input_file)
     output_file = base + '_converted.mp4'
+    global unfinished_output_file
+    unfinished_output_file = output_file
 
     # Skip if output already exists
     if os.path.exists(output_file):
@@ -186,6 +229,7 @@ def transcode_file(input_file):
         logging.info("ffmpeg output:\n" + result.stdout)
         logging.info("ffmpeg errors:\n" + result.stderr)
         if result.returncode == 0:
+            unfinished_output_file = None
             logging.info(f"Success: {output_file}")
             print(f"Success: {output_file}")
             try:
