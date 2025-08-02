@@ -88,6 +88,7 @@ def build_ffmpeg_command(input_file, probe=None):
     subtitle_lang_metadata = []
 
     # Find surround sound audio streams and subtitle streams
+    subtitle_stream_counter = 0
     for stream in probe['streams']:
         if stream['codec_type'] == 'audio':
             idx = stream['index']
@@ -104,38 +105,48 @@ def build_ffmpeg_command(input_file, probe=None):
             # Only include text-based subtitles for MP4
             if codec in ('subrip', 'srt', 'ass', 'ssa', 'mov_text'):
                 if not lang:
-                    subtitle_lang_metadata.append(f'-metadata:s:s:{idx} language=eng')
+                    subtitle_lang_metadata.append(f'-metadata:s:s:{subtitle_stream_counter} language=eng')
                 disposition = stream.get('disposition', {})
                 if disposition.get('forced', 0) == 1:
                     forced_subs.append(idx)
                 if lang == 'eng':
                     eng_subs.append(idx)
+                subtitle_stream_counter += 1
+            elif codec == 'hdmv_pgs_subtitle':
+                logging.warning(f"Skipping PGS subtitle stream {idx} for MP4 output: not supported.")
+                    forced_subs.append(idx)
+                if lang == 'eng':
+                    eng_subs.append(idx)
+                subtitle_stream_counter += 1
             elif codec == 'hdmv_pgs_subtitle':
                 logging.warning(f"Skipping PGS subtitle stream {idx} for MP4 output: not supported.")
 
     # Prefer English surround, then unlabeled, else log/print available
+    surround_audio_stream_counter = None
     if surround_candidates:
         # Try to find English surround
-        for idx, lang in surround_candidates:
+        for idx, lang, audio_counter in surround_candidates:
             if lang == 'eng':
                 surround_idx = idx
+                surround_audio_stream_counter = audio_counter
                 break
         # If not found, try to find one with no language label
         if surround_idx is None:
-            for idx, lang in surround_candidates:
+            for idx, lang, audio_counter in surround_candidates:
                 if not lang:
                     surround_idx = idx
+                    surround_audio_stream_counter = audio_counter
                     break
         # If still not found, flag and log all available surround streams
         if surround_idx is None:
             msg = (
                 f"No English surround audio found. "
-                f"Available surround streams: {[(idx, lang) for idx, lang in surround_candidates]}"
+                f"Available surround streams: {[(idx, lang) for idx, lang, _ in surround_candidates]}"
             )
             print(msg)
             logging.warning(msg)
             # Optionally, pick the first surround as fallback
-            surround_idx = surround_candidates[0][0]
+            surround_idx, _, surround_audio_stream_counter = surround_candidates[0]
 
     # Audio mapping
     audio_maps = []
@@ -143,21 +154,22 @@ def build_ffmpeg_command(input_file, probe=None):
     if surround_idx is not None:
         # Map surround channel and label
         audio_maps += ['-map', f'0:{surround_idx}']
-        audio_labels += ['-metadata:s:a:0', 'title=Surround']
+        audio_labels += [f'-metadata:s:a:0', 'title=Surround']
         # Create stereo from surround with compression
         audio_maps += [
             '-filter_complex',
             f'[0:{surround_idx}]pan=stereo|c0=c0+c2+c4|c1=c1+c3+c5,acompressor=level_in=1.5:threshold=0.1:ratio=6:attack=20:release=250[aout]'
         ]
         audio_maps += ['-map', '[aout]']
-        audio_labels += ['-metadata:s:a:1', 'title=Stereo (Compressed)']
+        audio_labels += [f'-metadata:s:a:1', 'title=Stereo (Compressed)']
     else:
         # Fallback: map first audio stream
+        fallback_audio_counter = 0
         for stream in probe['streams']:
             if stream['codec_type'] == 'audio':
                 idx = stream['index']
                 audio_maps += ['-map', f'0:{idx}']
-                audio_labels += ['-metadata:s:a:0', 'title=Stereo']
+                audio_labels += [f'-metadata:s:a:0', 'title=Stereo']
                 break
 
     # Subtitle mapping (forced and English, only text-based)

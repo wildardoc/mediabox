@@ -10,7 +10,9 @@ with open(CONFIG_PATH, "r") as f:
 
 venv_path = config["venv_path"]
 DOWNLOAD_DIRS = config["download_dirs"]
-MEDIA_LIBRARY_DIRS = config["media_library_dirs"]
+TV_LIBRARY_DIR = config["tv_library_dir"]
+MOVIE_LIBRARY_DIR = config["movie_library_dir"]
+MUSIC_LIBRARY_DIR = config["music_library_dir"]
 
 site_packages = os.path.join(
     venv_path, "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages"
@@ -218,16 +220,27 @@ def should_delete_music(file_path, library_music_dir, dry_run=False):
             return True
         return False
 
-    lib_file = find_library_music_file(artist, album, track, library_music_dir)
-    if lib_file:
         dl_info = get_media_info(file_path)
         lib_info = get_media_info(lib_file)
-        if dl_info[2] <= lib_info[2]:  # Compare bitrate
-            print(f"{file_path} is lower/equal bitrate than library copy. {'[DRY RUN]' if dry_run else 'Deleting.'}")
-            if not dry_run:
-                os.remove(file_path)
-            return True
+        if dl_info[2] is not None and lib_info[2] is not None:
+            if dl_info[2] <= lib_info[2]:  # Compare bitrate
+                print(f"{file_path} is lower/equal bitrate than library copy. {'[DRY RUN]' if dry_run else 'Deleting.'}")
+                if not dry_run:
+                    os.remove(file_path)
+                return True
+            else:
+                print(f"{file_path} is higher bitrate than library copy. Manual intervention needed.")
+                return False
         else:
+            # If bitrate info is missing, fallback to age-based deletion
+            mtime = os.path.getmtime(file_path)
+            age_days = (time.time() - mtime) / (24 * 3600)
+            if age_days > DAYS_OLD:
+                print(f"{file_path} is old and not matched (bitrate unknown). {'[DRY RUN]' if dry_run else 'Deleting.'}")
+                if not dry_run:
+                    os.remove(file_path)
+                return True
+            return False
             print(f"{file_path} is higher bitrate than library copy. Manual intervention needed.")
             return False
     else:
@@ -247,9 +260,9 @@ def main():
     args = parser.parse_args()
     setup_logging(args.log_file)
 
-    tv_library_dir = MEDIA_LIBRARY_DIRS[0]  # Assuming first is TV
-    movie_library_dir = MEDIA_LIBRARY_DIRS[1]
-    music_library_dir = MEDIA_LIBRARY_DIRS[2]
+    tv_library_dir = TV_LIBRARY_DIR
+    movie_library_dir = MOVIE_LIBRARY_DIR
+    music_library_dir = MUSIC_LIBRARY_DIR
 
     for download_dir in DOWNLOAD_DIRS:
         for dirpath, _, filenames in os.walk(download_dir):
