@@ -50,28 +50,41 @@ atexit.register(cleanup_unfinished_file)
 for sig in (signal.SIGINT, signal.SIGTERM):
     signal.signal(sig, lambda signum, frame: (cleanup_unfinished_file(), exit(1)))
 
+# Define supported video and audio file extensions as module-level constants
+VIDEO_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv')
+AUDIO_EXTS = ('.flac', '.wav', '.aiff', '.ape', '.wv', '.m4a', '.ogg', '.opus', '.wma')
+
 def get_video_files(root_dir):
-    video_exts = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv')
     files = []
     for dirpath, _, filenames in os.walk(root_dir):
         for filename in filenames:
-            if filename.lower().endswith(video_exts):
+            if filename.lower().endswith(VIDEO_EXTS):
                 files.append(os.path.join(dirpath, filename))
     return files
 
 def get_audio_files(root_dir):
-    audio_exts = ('.flac', '.wav', '.aiff', '.ape', '.wv', '.m4a', '.ogg', '.opus', '.wma')
+    """
+    Recursively find audio files in the given directory, excluding already converted MP3 files.
+
+    Parameters:
+        root_dir (str): The root directory to search for audio files.
+
+    Returns:
+        list: List of paths to audio files (excluding .mp3 files).
+
+    Supported audio formats:
+        .flac, .wav, .aiff, .ape, .wv, .m4a, .ogg, .opus, .wma
+    """
     files = []
     for dirpath, _, filenames in os.walk(root_dir):
         for filename in filenames:
-            if filename.lower().endswith(audio_exts):
+            if filename.lower().endswith(AUDIO_EXTS):
                 # Skip already converted MP3 files
                 if not filename.lower().endswith('.mp3'):
                     files.append(os.path.join(dirpath, filename))
     return files
 
-def get_media_files(root_dir, media_type='both'):
-    """Get media files based on type: 'video', 'audio', or 'both'."""
+def get_media_files(root_dir, media_type):
     if media_type == 'video':
         return get_video_files(root_dir)
     elif media_type == 'audio':
@@ -80,7 +93,20 @@ def get_media_files(root_dir, media_type='both'):
         return get_video_files(root_dir) + get_audio_files(root_dir)
 
 def extract_pgs_subtitles(input_file, probe):
-    """Extract PGS subtitles as separate .sup files"""        
+    """
+    Extract PGS subtitles as separate .sup files.
+
+    Parameters:
+        input_file (str): Path to the input video file.
+        probe (dict): ffmpeg.probe result containing stream information.
+
+    Returns:
+        list: List of paths to extracted .sup subtitle files.
+
+    Note:
+        PGS (Presentation Graphic Stream) subtitles are bitmap-based subtitles commonly found in Blu-ray media.
+        This function extracts each PGS subtitle stream from the input file and saves it as a separate .sup file.
+    """
     extracted_files = []
     
     for stream in probe['streams']:
@@ -118,7 +144,6 @@ def extract_pgs_subtitles(input_file, probe):
                 logging.warning(f"Error extracting PGS subtitle stream {idx}: {e}")
     
     return extracted_files
-
 def build_ffmpeg_command(input_file, probe=None):
     """
     Build ffmpeg command-line arguments for transcoding the input file.
@@ -151,7 +176,7 @@ def build_ffmpeg_command(input_file, probe=None):
             idx = stream['index']
             lang = stream.get('tags', {}).get('language', '').lower()
             if not lang:
-                audio_lang_metadata.extend(['-metadata:s:a:' + str(audio_stream_counter), 'language=eng'])
+                audio_lang_metadata.extend([f'-metadata:s:a:{audio_stream_counter}', 'language=eng'])
             channels = int(stream.get('channels', 0))
             if channels >= 6:
                 surround_candidates.append((idx, lang))
@@ -268,12 +293,11 @@ def build_audio_ffmpeg_command(input_file, probe=None):
             logging.error(f"ffprobe error for {input_file}: {e.stderr.decode()}")
             raise
 
-    # Audio conversion settings
+    # Build ffmpeg args for MP3 conversion with high quality settings
     args = [
-        '-c:a', 'libmp3lame',  # Use LAME MP3 encoder
-        '-b:a', '320k',        # 320kbps bitrate for high quality
-        '-f', 'mp3',           # Force MP3 format
-        '-y'                   # Overwrite output
+        '-c:a', 'libmp3lame',
+        '-b:a', '320k',
+        '-y'  # Overwrite output
     ]
     
     # Preserve metadata if available
@@ -289,18 +313,13 @@ def build_audio_ffmpeg_command(input_file, probe=None):
 
 def transcode_file(input_file):
     # Determine if this is a video or audio file
-    video_exts = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv')
-    audio_exts = ('.flac', '.wav', '.aiff', '.ape', '.wv', '.m4a', '.ogg', '.opus', '.wma')
-    
-    is_video = input_file.lower().endswith(video_exts)
-    is_audio = input_file.lower().endswith(audio_exts)
+    is_video = input_file.lower().endswith(VIDEO_EXTS)
+    is_audio = input_file.lower().endswith(AUDIO_EXTS)
     
     if not is_video and not is_audio:
         logging.warning(f"Unsupported file format: {input_file}")
         print(f"Unsupported file format: {input_file}")
         return
-    
-    base, ext = os.path.splitext(input_file)
     
     # Determine target format and extension
     if is_video:
@@ -308,15 +327,22 @@ def transcode_file(input_file):
     else:  # is_audio
         target_ext = '.mp3'
     
+    base = os.path.splitext(input_file)[0]
     final_output_file = base + target_ext
     
     # Use temp file if transcoding in place, otherwise use final name directly
-    if input_file.lower() == final_output_file.lower():
+    try:
+        same_file = os.path.samefile(input_file, final_output_file)
+    except Exception:
+        # Fallback to case-insensitive comparison if samefile fails (e.g., file doesn't exist yet)
+        same_file = input_file.lower() == final_output_file.lower()
+    
+    if same_file:
         temp_output_file = base + '.tmp' + target_ext
         output_file = temp_output_file
     else:
         output_file = final_output_file
-    
+        
     global unfinished_output_file
     unfinished_output_file = output_file
 
