@@ -86,12 +86,15 @@ services:
         - PUID=${PUID}
         - PGID=${PGID}
         - TZ=${TZ}
+        - DOCKER_MODS=linuxserver/mods:universal-package-install
+        - INSTALL_PACKAGES=python3|py3-pip|ffmpeg
     volumes:
         - './lidarr:/config'
         - '${DLDIR}/completed:/data/completed'
         - '${DLDIR}/incomplete:/data/incomplete'
         - '${MUSICDIR}:/music'
         - '/etc/localtime:/etc/localtime:ro'
+        - '.:/scripts'
 
   # ----------------------------------------
   # NZBGet
@@ -215,11 +218,14 @@ services:
         - PUID=${PUID}
         - PGID=${PGID}
         - TZ=${TZ}
+        - DOCKER_MODS=linuxserver/mods:universal-package-install
+        - INSTALL_PACKAGES=python3|py3-pip|ffmpeg
     volumes:
         - './radarr:/config'
         - '${DLDIR}/completed:/data/completed'
         - '${DLDIR}/incomplete:/data/incomplete'
         - '${MOVIEDIR}:/movies'
+        - '.:/scripts'
 
   # ----------------------------------------
   # SONARR
@@ -235,11 +241,14 @@ services:
         - PUID=${PUID}
         - PGID=${PGID}
         - TZ=${TZ}
+        - DOCKER_MODS=linuxserver/mods:universal-package-install
+        - INSTALL_PACKAGES=python3|py3-pip|ffmpeg
     volumes:
         - './sonarr:/config'
         - '${DLDIR}/completed:/data/completed'
         - '${DLDIR}/incomplete:/data/incomplete'
         - '${TVDIR}:/tv'
+        - '.:/scripts'
 
   # ----------------------------------------
   # Maintainerr
