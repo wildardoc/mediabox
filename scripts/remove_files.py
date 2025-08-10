@@ -10,9 +10,10 @@ with open(CONFIG_PATH, "r") as f:
 
 venv_path = config["venv_path"]
 DOWNLOAD_DIRS = config["download_dirs"]
-TV_LIBRARY_DIR = config["tv_library_dir"]
-MOVIE_LIBRARY_DIR = config["movie_library_dir"]
-MUSIC_LIBRARY_DIR = config["music_library_dir"]
+LIBRARY_DIRS = config["library_dirs"]
+TV_LIBRARY_DIR = LIBRARY_DIRS["tv"]
+MOVIE_LIBRARY_DIR = LIBRARY_DIRS["movies"]
+MUSIC_LIBRARY_DIR = LIBRARY_DIRS["music"]
 
 site_packages = os.path.join(
     venv_path, "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages"

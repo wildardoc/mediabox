@@ -1,4 +1,79 @@
 #!/usr/bin/env python3
+"""
+Mediabox Media Update Script
+============================
+
+Intelligent media conversion system for automated processing of video, audio, and subtitle files.
+Designed for integration with Plex Media Server via Sonarr/Radarr/Lidarr webhook automation.
+
+FEATURES:
+---------
+• Video Processing: H.264/H.265 conversion with subtitle preservation
+• Audio Processing: Multi-format to MP3 320kbps conversion (FLAC, WAV, AIFF, etc.)
+• Subtitle Handling: PGS subtitle extraction to .sup files
+• Metadata Preservation: Maintains audio metadata during conversion
+• Batch Processing: Directory and single-file processing modes
+• Logging: Comprehensive progress and error logging with rotation
+
+WEBHOOK INTEGRATION:
+-------------------
+This script is automatically called by import.sh when *arr applications detect new downloads.
+For manual webhook setup in *arr applications:
+
+SONARR WEBHOOK SETUP:
+1. Settings → Connect → Add → Custom Script
+2. Name: "Mediabox Processing"
+3. Path: /scripts/import.sh
+4. Triggers: ☑ On Import, ☑ On Upgrade  
+5. Arguments: (leave blank - uses environment variables)
+6. Test the connection - should show "Test event completed successfully"
+
+RADARR WEBHOOK SETUP:
+1. Settings → Connect → Add → Custom Script  
+2. Name: "Mediabox Processing"
+3. Path: /scripts/import.sh
+4. Triggers: ☑ On Import, ☑ On Upgrade
+5. Arguments: (leave blank - uses environment variables)
+6. Test the connection - should show "Test event completed successfully"
+
+LIDARR WEBHOOK SETUP:
+1. Settings → Connect → Add → Custom Script
+2. Name: "Mediabox Processing" 
+3. Path: /scripts/import.sh
+4. Triggers: ☑ On Import, ☑ On Upgrade
+5. Arguments: (leave blank - uses environment variables)
+6. Test the connection - should show "Test event completed successfully"
+
+PROCESSING TYPES:
+----------------
+• TV Shows (via Sonarr): --type video (preserves subtitles, optimized for TV)
+• Movies (via Radarr): --type both (comprehensive audio/video processing)
+• Music (via Lidarr): --type audio (high-quality audio conversion)
+
+MANUAL USAGE:
+------------
+# Process entire directory
+python3 media_update.py --dir "/path/to/media" --type both
+
+# Process single file
+python3 media_update.py --file "/path/to/file.mkv" --type video
+
+# Audio-only conversion
+python3 media_update.py --dir "/music/folder" --type audio
+
+SUPPORTED FORMATS:
+-----------------
+Video Input: MKV, AVI, MOV, WMV, FLV, M4V, 3GP, WEBM
+Audio Input: FLAC, WAV, AIFF, APE, WV, M4A, OGG, OPUS, WMA
+Output: MP4 (video), MP3 320kbps (audio), SUP (subtitles)
+
+REQUIREMENTS:
+------------
+• Python 3.6+ with ffmpeg-python, future packages
+• FFmpeg binary with codec support
+• Sufficient disk space for temporary files during processing
+"""
+
 import sys
 import os
 import atexit
@@ -11,7 +86,9 @@ with open(CONFIG_PATH, "r") as f:
 
 venv_path = config["venv_path"]
 DOWNLOAD_DIRS = config["download_dirs"]
-MEDIA_LIBRARY_DIRS = config["media_library_dirs"]
+LIBRARY_DIRS = config["library_dirs"]
+# Create list of all library directories for compatibility
+MEDIA_LIBRARY_DIRS = list(LIBRARY_DIRS.values())
 
 site_packages = os.path.join(
     venv_path, "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages"

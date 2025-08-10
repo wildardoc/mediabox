@@ -1,26 +1,41 @@
 # Mediabox
 
-Mediabox is an all Docker Container based media aggregator stack.
+Mediabox is an all Docker Container based media aggregator stack with **automated media processing capabilities**.
 
-Components include:
+## 🎯 **Active Components**
 
-* [Deluge torrent client (using VPN)](http://deluge-torrent.org/)
-* [Homer - Server Home Page](https://github.com/bastienwirtz/homer)
-* [Homer Icons - Icons for Homer](https://github.com/NX211/homer-icons)
-* [Jackett Tracker API and Proxy](https://github.com/Jackett/Jackett)
-* [Lidarr Music collection manager](https://lidarr.audio/)
-* [Maintainerr Media Manager](https://maintainerr.info/)
-* [NZBGet Usenet Downloader](https://nzbget.net/)  
-* [NZBHydra2 Meta Search](https://github.com/theotherp/nzbhydra2)  
-* [Ombi media assistant](http://www.ombi.io/)
-* [Overseerr Media Library Request Management](https://github.com/sct/overseerr)
-* [Plex media server](https://www.plex.tv/)
-* [Portainer Docker Container manager](https://portainer.io/)
-* [Prowlarr indexer manager/proxy](https://github.com/Prowlarr/Prowlarr)
-* [Radarr movie library manager](https://radarr.video/)
-* [Sonarr TV library manager](https://sonarr.tv/)
-* [Tautulli Plex Media Server monitor](https://github.com/tautulli/tautulli)
-* [Watchtower Automatic container updater](https://github.com/containrrr/watchtower)
+Your current Mediabox deployment includes:
+
+* **[Sonarr](https://sonarr.tv/) - TV Show Management & Automation** ✅
+* **[Radarr](https://radarr.video/) - Movie Management & Automation** ✅  
+* **[Lidarr](https://lidarr.audio/) - Music Management & Automation** ✅
+* **[Prowlarr](https://github.com/Prowlarr/Prowlarr) - Indexer Manager/Proxy** ✅
+* **[Deluge torrent client (using VPN)](http://deluge-torrent.org/)** ✅
+* **[NZBGet Usenet Downloader](https://nzbget.net/)** ✅
+* **[Overseerr Media Request Management](https://github.com/sct/overseerr)** ✅
+* **[Homer - Server Home Page](https://github.com/bastienwirtz/homer)** ✅
+* **[Portainer Docker Container Manager](https://portainer.io/)** ✅
+* **[Maintainerr Media Manager](https://maintainerr.info/)** ✅
+* **[Tautulli Plex Media Server Monitor](https://github.com/tautulli/tautulli)** ✅
+
+### **Optional Components** 
+* **[Plex Media Server](https://www.plex.tv/)** - *Ready for Docker deployment when needed*
+
+## 🚀 **Enhanced Features**
+
+### **Automated Media Processing**
+Mediabox includes intelligent media processing that automatically triggers when new content is downloaded:
+
+- **📺 TV Shows**: Video conversion with subtitle preservation 
+- **🎬 Movies**: Comprehensive audio/video processing
+- **🎵 Music**: High-quality audio conversion (FLAC/WAV/etc → MP3 320kbps)
+- **📋 Subtitles**: PGS subtitle extraction and preservation
+- **🔗 *arr Integration**: Webhook-based automation with Sonarr/Radarr/Lidarr
+
+### **Intelligent Log Management**
+- **📊 Automatic rotation**: Weekly log compression and cleanup
+- **💾 Space optimization**: 90%+ space savings on historical logs
+- **🗓️ Smart retention**: 14 days active, 90 days archived, auto-delete thereafter
 
 ## Prerequisites
 
@@ -113,12 +128,122 @@ As the script runs you will be prompted for:
 
 Upon completion, the script will launch your mediabox containers.  
 
+**🎯 Automated Media Processing Setup**
+
+The setup script automatically configures:
+- **Python environment** with required packages (ffmpeg-python, future)
+- **Log rotation** via weekly cron job (Sundays at 2 AM)  
+- **Webhook scripts** for *arr application integration
+- **Container dependencies** (Python3, ffmpeg, pip) installed automatically
+
+**🔗 Configuring *arr Webhooks**
+
+After setup, configure webhooks in each *arr application:
+
+1. **Sonarr**: Settings → Connect → Add → Custom Script
+2. **Radarr**: Settings → Connect → Add → Custom Script  
+3. **Lidarr**: Settings → Connect → Add → Custom Script
+
+**Webhook Settings:**
+- **Path**: `/scripts/import.sh`
+- **Triggers**: ✅ On Import, ✅ On Upgrade
+- **Arguments**: *(leave blank - uses environment variables)*
+
+The system will automatically:
+- Detect download completion via webhooks
+- Process media based on type (TV/Movies/Music)
+- Convert formats for Plex compatibility
+- Preserve metadata and subtitles
+- Log all activities with rotation
+
 Portainer has been switched to the **CE** branch  
 
 * **A Password** will now be required - the password can be set at initial login to Portiner.  
 * **Initial Username** The initial username for Portainer is **admin**  
 
 ### **Mediabox has been tested to work on Ubuntu 18.04 LTS / 20.04 LTS - Server and Desktop**
+
+## 🛠️ **Advanced Usage & Maintenance**
+
+### **Scripts Directory**
+All automation scripts are organized in the `scripts/` directory:
+```
+scripts/
+├── import.sh                 # Webhook handler for *arr integration
+├── media_update.py          # Core media processing engine  
+├── rotate-logs.sh           # Log rotation utility
+├── mediabox_config.json     # Configuration file
+├── requirements.txt         # Python dependencies
+├── LOG_MANAGEMENT.md        # Log management documentation
+└── .venv/                   # Python virtual environment
+```
+
+## **Core Processing Engine**
+
+### **media_update.py Overview**
+The `media_update.py` script is the intelligent core of the Mediabox automation system, providing comprehensive media processing capabilities:
+
+**Key Features:**
+- **Video Processing**: Converts video files to H.264/H.265 MP4 format with subtitle preservation
+- **Audio Processing**: Converts FLAC, WAV, AIFF and other formats to high-quality MP3 (320kbps)
+- **Subtitle Handling**: Extracts PGS subtitles to .sup files for Plex compatibility
+- **Batch Processing**: Handles both directory-wide and single-file processing
+- **Metadata Preservation**: Maintains audio tags during conversion
+- **Error Recovery**: Robust error handling with detailed logging
+
+**Processing Modes:**
+- `--type video`: Video conversion with subtitle preservation (TV shows via Sonarr)
+- `--type audio`: Audio-only conversion (Music via Lidarr) 
+- `--type both`: Complete audio and video processing (Movies via Radarr)
+
+**Supported Formats:**
+- **Video Input**: MKV, AVI, MOV, WMV, FLV, M4V, 3GP, WEBM → MP4 output
+- **Audio Input**: FLAC, WAV, AIFF, APE, WV, M4A, OGG, OPUS, WMA → MP3 320kbps output
+- **Subtitles**: PGS subtitle tracks → SUP files for Plex
+
+### **Manual Media Processing**
+```bash
+# Process specific directory
+cd /path/to/mediabox/scripts
+python3 media_update.py --dir "/path/to/media" --type video
+
+# Process single file  
+python3 media_update.py --file "/path/to/file.mkv" --type both
+
+# Audio-only conversion
+python3 media_update.py --dir "/path/to/music" --type audio
+```
+
+### **Media Cleanup & Maintenance**
+```bash
+# Manual cleanup of duplicate/old downloads (dry-run first)
+cd scripts && python3 remove_files.py --dry-run
+
+# Actually remove files
+cd scripts && python3 remove_files.py
+
+# Manual log rotation
+cd scripts && ./rotate-logs.sh
+
+# View compressed logs
+zcat media_update_*.log.gz | less
+
+# Check automation history
+cat scripts/log-rotation.log
+cat scripts/cleanup_downloads.log
+```
+
+**Automatic Cleanup Features:**
+- **Smart Duplicate Detection**: Compares download files against library files
+- **Resolution-Based Cleanup**: Removes lower-quality duplicates automatically  
+- **Age-Based Cleanup**: Removes unmatched files older than 7 days
+- **Weekly Schedule**: Runs automatically on Mondays at 3 AM
+
+### **Troubleshooting**
+- **Logs**: Check `scripts/import_YYYYMMDD.log` for webhook activity
+- **Processing**: Check `scripts/media_update_*.log` for conversion details  
+- **Webhooks**: Test via *arr application Settings → Connect → Test
+- **Dependencies**: Containers auto-install Python packages on startup
 
 **Thanks go out to:**
 

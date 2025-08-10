@@ -57,7 +57,7 @@ services:
         - './delugevpn/config:/config'
 
   # ----------------------------------------
-  # HOMER
+  # HOMER - Dashboard
   # ----------------------------------------
   homer:
     image: b4bz/homer:latest
@@ -73,7 +73,7 @@ services:
         - './homer:/www/assets'
 
   # ----------------------------------------
-  # LIDARR
+  # LIDARR - Music Management & Automation
   # ----------------------------------------
   lidarr:
     image: lscr.io/linuxserver/lidarr
@@ -94,10 +94,28 @@ services:
         - '${DLDIR}/incomplete:/data/incomplete'
         - '${MUSICDIR}:/music'
         - '/etc/localtime:/etc/localtime:ro'
-        - '.:/scripts'
+        - './scripts:/scripts'
+        - './scripts/install-python-packages.sh:/custom-cont-init.d/install-python-packages'
 
   # ----------------------------------------
-  # NZBGet
+  # MAINTAINERR - Plex Library Management
+  # ----------------------------------------
+  maintainerr:
+    image: ghcr.io/jorenn92/maintainerr:latest 
+    container_name: maintainerr
+    user: ${PUID}:${PGID}
+    volumes:
+         - './maintainerr:/opt/data'
+    network_mode: 'bridge' 
+    environment:
+         - TZ=${TZ}
+    #   - DEBUG=true # uncomment to enable debug logs
+    ports:
+         - '${IP_ADDRESS}:6246:6246' 
+    restart: unless-stopped
+
+  # ----------------------------------------
+  # NZBGet - Usenet Downloader
   # ----------------------------------------
   nzbget:
     image: lscr.io/linuxserver/nzbget
@@ -115,7 +133,7 @@ services:
       - '${DLDIR}:/downloads'
 
   # ----------------------------------------
-  # OVERSEERR
+  # OVERSEERR - Media Requests
   # ----------------------------------------
   overseerr:
     image: lscr.io/linuxserver/overseerr
@@ -168,7 +186,7 @@ services:
         - '${PHOTODIR}:/data/photos'
 
   # ----------------------------------------
-  # PORTAINER
+  # PORTAINER - Container Management
   # ----------------------------------------
   portainer:
     image: portainer/portainer-ce
@@ -188,7 +206,7 @@ services:
     command: -H unix:///var/run/docker.sock
 
   # ----------------------------------------
-  # PROWLARR
+  # PROWLARR - Indexer Management
   # ----------------------------------------
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:develop
@@ -205,7 +223,7 @@ services:
       - './prowlarr:/config'
 
   # ----------------------------------------
-  # RADARR
+  # RADARR - Movie Management & Automation
   # ----------------------------------------
   radarr:
     image: lscr.io/linuxserver/radarr
@@ -225,10 +243,11 @@ services:
         - '${DLDIR}/completed:/data/completed'
         - '${DLDIR}/incomplete:/data/incomplete'
         - '${MOVIEDIR}:/movies'
-        - '.:/scripts'
+        - './scripts:/scripts'
+        - './scripts/install-python-packages.sh:/custom-cont-init.d/install-python-packages'
 
   # ----------------------------------------
-  # SONARR
+  # SONARR - TV Show Management & Automation
   # ----------------------------------------
   sonarr:
     image: lscr.io/linuxserver/sonarr
@@ -248,27 +267,11 @@ services:
         - '${DLDIR}/completed:/data/completed'
         - '${DLDIR}/incomplete:/data/incomplete'
         - '${TVDIR}:/tv'
-        - '.:/scripts'
+        - './scripts:/scripts'
+        - './scripts/install-python-packages.sh:/custom-cont-init.d/install-python-packages'
 
   # ----------------------------------------
-  # Maintainerr
-  # ----------------------------------------
-  maintainerr:
-    image: ghcr.io/jorenn92/maintainerr:latest 
-    container_name: maintainerr
-    user: ${PUID}:${PGID}
-    volumes:
-         - './maintainerr:/opt/data'
-    network_mode: 'bridge' 
-    environment:
-         - TZ=${TZ}
-    #   - DEBUG=true # uncomment (remove the hashtag) to enable debug logs
-    ports:
-         - '${IP_ADDRESS}:6246:6246' 
-    restart: unless-stopped
-    
-  # ----------------------------------------
-  # TAUTULLI
+  # TAUTULLI - Plex Usage Statistics
   # ----------------------------------------
   tautulli:
     image: tautulli/tautulli
