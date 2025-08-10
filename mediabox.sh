@@ -340,11 +340,12 @@ printf "Setup Complete - Open a browser and go to: \\n\\n"
 printf "http://%s \\nOR http://%s If you have appropriate DNS configured.\\n\\n" "$locip" "$thishost"
 
 INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
-VENV_DIR="$INSTALL_DIR/.venv"
-REQ_FILE="$INSTALL_DIR/requirements.txt"
-PY_FILE="$INSTALL_DIR/media_update.py"
-IMPORT_SH="$INSTALL_DIR/import.sh"
-PY_SCRIPT="$INSTALL_DIR/media_update.py"
+SCRIPTS_DIR="$INSTALL_DIR/scripts"
+VENV_DIR="$SCRIPTS_DIR/.venv"
+REQ_FILE="$SCRIPTS_DIR/requirements.txt"
+PY_FILE="$SCRIPTS_DIR/media_update.py"
+IMPORT_SH="$SCRIPTS_DIR/import.sh"
+PY_SCRIPT="$SCRIPTS_DIR/media_update.py"
 
 # Create virtual environment if it doesn't exist
 if [ ! -d "$VENV_DIR" ]; then
@@ -357,12 +358,66 @@ pip install --upgrade pip
 pip install -r "$REQ_FILE"
 deactivate
 
-cat > "$INSTALL_DIR/mediabox_config.json" <<EOF
+cat > "$SCRIPTS_DIR/mediabox_config.json" <<EOF
 {
   "venv_path": "$VENV_DIR",
   "download_dirs": ["$dldirectory/completed", "$dldirectory/incomplete"],
-  "media_library_dirs": ["$tvdirectory", "$moviedirectory", "$musicdirectory", "$miscdirectory"]
+  "library_dirs": {
+    "tv": "$tvdirectory",
+    "movies": "$moviedirectory",
+    "music": "$musicdirectory",
+    "misc": "$miscdirectory"
+  }
 }
 EOF
+
+# Setup log rotation cron job
+echo "Setting up automatic log rotation..."
+CRON_ENTRY="0 2 * * 0 cd $SCRIPTS_DIR && ./rotate-logs.sh >> $SCRIPTS_DIR/log-rotation.log 2>&1"
+CRON_COMMENT="# Mediabox log rotation - runs weekly on Sundays at 2 AM"
+
+# Check if cron job already exists
+if ! crontab -l 2>/dev/null | grep -q "rotate-logs.sh"; then
+    # Add the cron job
+    (crontab -l 2>/dev/null; echo "$CRON_COMMENT"; echo "$CRON_ENTRY") | crontab -
+    echo "✓ Log rotation cron job added (runs weekly on Sundays at 2 AM)"
+else
+    echo "✓ Log rotation cron job already exists"
+fi
+
+# Setup media cleanup cron job  
+echo "Setting up automatic media cleanup..."
+CLEANUP_CRON_ENTRY="0 3 * * 1 cd $SCRIPTS_DIR && python3 remove_files.py >> $SCRIPTS_DIR/cleanup_downloads.log 2>&1"
+CLEANUP_CRON_COMMENT="# Mediabox media cleanup - runs weekly on Mondays at 3 AM"
+
+# Check if cleanup cron job already exists
+if ! crontab -l 2>/dev/null | grep -q "remove_files.py"; then
+    # Add the cleanup cron job
+    (crontab -l 2>/dev/null; echo "$CLEANUP_CRON_COMMENT"; echo "$CLEANUP_CRON_ENTRY") | crontab -
+    echo "✓ Media cleanup cron job added (runs weekly on Mondays at 3 AM)"
+else
+    echo "✓ Media cleanup cron job already exists"
+fi
+
+echo ""
+echo "Mediabox setup completed successfully!"
+echo ""
+echo "Automation features:"
+echo "  - Webhook processing: Automatic media conversion on download"
+echo "  - Log rotation: Weekly compression and cleanup (Sundays at 2 AM)"
+echo "  - Media cleanup: Weekly duplicate/old file removal (Mondays at 3 AM)"
+echo ""
+echo "Manual operations:"
+echo "  - Log rotation: cd $SCRIPTS_DIR && ./rotate-logs.sh"
+echo "  - Media cleanup: cd $SCRIPTS_DIR && python3 remove_files.py"
+echo "  - Media conversion: cd $SCRIPTS_DIR && python3 media_update.py --dir [path] --type [video|audio|both]"
+echo ""
+echo "Log locations:"
+echo "  - Webhook activity: $SCRIPTS_DIR/import_YYYYMMDD.log"
+echo "  - Media processing: $SCRIPTS_DIR/media_update_YYYYMMDD.log"
+echo "  - Log rotation: $SCRIPTS_DIR/log-rotation.log"
+echo "  - Media cleanup: $SCRIPTS_DIR/cleanup_downloads.log"
+echo "  - Retention policy: 14 days uncompressed, 90 days compressed, then deleted"
+echo ""
 
 exit

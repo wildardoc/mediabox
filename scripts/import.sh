@@ -207,7 +207,7 @@ execute_conversion() {
         "tv")
             # TV shows - focus on video conversion with subtitle preservation
             if [[ -d "$media_path" ]]; then
-                cmd_args+=(--path "$media_path")
+                cmd_args+=(--dir "$media_path")
             else
                 cmd_args+=(--file "$media_path")
             fi
@@ -216,7 +216,7 @@ execute_conversion() {
         "movie")
             # Movies - comprehensive processing with audio and video
             if [[ -d "$media_path" ]]; then
-                cmd_args+=(--path "$media_path")
+                cmd_args+=(--dir "$media_path")
             else
                 cmd_args+=(--file "$media_path")
             fi
@@ -225,7 +225,7 @@ execute_conversion() {
         "audio")
             # Music - audio-only conversion
             if [[ -d "$media_path" ]]; then
-                cmd_args+=(--path "$media_path")
+                cmd_args+=(--dir "$media_path")
             else
                 cmd_args+=(--file "$media_path")
             fi
@@ -234,7 +234,7 @@ execute_conversion() {
         "both")
             # Legacy mode - comprehensive processing
             if [[ -d "$media_path" ]]; then
-                cmd_args+=(--path "$media_path")
+                cmd_args+=(--dir "$media_path")
             else
                 cmd_args+=(--file "$media_path")
             fi
