@@ -329,7 +329,7 @@ cp prep/config.yml homer/config.yml
 cp prep/mediaboxconfig.html homer/mediaboxconfig.html
 cp prep/portmap.html homer/portmap.html
 cp prep/icons/* homer/icons/
-sed '/^PIA/d' < .env > homer/env.txt # Pull PIA creds from the displayed .env file
+sed -E '/^(PIA|CPDAEMON|NZBGET)/d' < .env > homer/env.txt # Filter out all credentials from displayed .env file
 perl -i -pe "s/thishost/$thishost/g" homer/config.yml
 perl -i -pe "s/locip/$locip/g" homer/config.yml
 perl -i -pe "s/locip/$locip/g" homer/mediaboxconfig.html
