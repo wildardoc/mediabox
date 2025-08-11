@@ -128,6 +128,37 @@ As the script runs you will be prompted for:
 
 Upon completion, the script will launch your mediabox containers.  
 
+## 🔐 **Credential Security**
+
+Mediabox automatically implements secure credential management during setup:
+
+- **🔒 Secure Storage**: Credentials are stored in `~/.mediabox/credentials.env` with user-only access (600 permissions)
+- **📂 Project Safety**: No sensitive data remains in the project directory 
+- **🚫 Git Protection**: Eliminates risk of accidentally committing passwords
+- **🔄 Environment Integration**: Credentials are automatically sourced into Docker containers
+
+### **Managing Credentials**
+
+**To change your PIA or daemon passwords:**
+```bash
+# Option 1: Edit directly (recommended for quick changes)
+nano ~/.mediabox/credentials.env
+
+# Option 2: Interactive script (recommended for complete updates)
+./scripts/setup-secure-env.sh
+```
+
+**To verify credential security:**
+```bash
+# Check file permissions (should show 600)
+ls -la ~/.mediabox/credentials.env
+
+# Test credential loading
+source .env && echo "Credentials loaded successfully"
+```
+
+**Note**: The `mediabox.sh` script automatically calls `setup-secure-env.sh` during initial setup, ensuring consistent credential management across all scenarios.
+
 **🎯 Automated Media Processing Setup**
 
 The setup script automatically configures:

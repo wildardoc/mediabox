@@ -69,6 +69,11 @@ $RECYCLE.BIN/
 *.lnk
 
 .env
+# Documentation and notes (local only)
+CREDENTIAL_SECURITY_GUIDE.md
+SECURITY_IMPLEMENTATION_COMPLETE.md
+IMPROVEMENT_RECOMMENDATIONS.md
+
 delugevpn/
 downloads/
 historical/
