@@ -214,9 +214,12 @@ cp ovpn/*.crt delugevpn/config/openvpn/ > /dev/null 2>&1
 cp ovpn/*.pem delugevpn/config/openvpn/ > /dev/null 2>&1
 
 # Create the .env file
-echo "Creating the .env file with the values we have gathered"
+echo "Creating the .env file with secure credential sourcing"
 printf "\\n"
 cat << EOF > .env
+# Source secure credentials
+. $HOME/.mediabox/credentials.env
+
 ###  ------------------------------------------------
 ###  M E D I A B O X   C O N F I G   S E T T I N G S
 ###  ------------------------------------------------
@@ -241,8 +244,6 @@ echo "MISCDIR=$miscdirectory"
 echo "MOVIEDIR=$moviedirectory"
 echo "MUSICDIR=$musicdirectory"
 echo "PHOTODIR=$photodirectory"
-echo "PIAUNAME=$piauname"
-echo "PIAPASS=$piapass"
 echo "CIDR_ADDRESS=$lannet"
 echo "TZ=$time_zone"
 echo "PMSTAG=$pmstag"
@@ -285,6 +286,16 @@ echo "The Deluge daemon, NZBGet's API & web interface."
 read -r -p "What would you like to use as the access username?: " daemonun
 read -r -p "What would you like to use as the access password?: " daemonpass
 printf "\\n\\n"
+
+# Create secure credential storage using external script
+echo "Setting up secure credential storage..."
+export PIAUNAME="$piauname"
+export PIAPASS="$piapass"
+export CPDAEMONUN="$daemonun"
+export CPDAEMONPASS="$daemonpass"
+export NZBGETUN="$daemonun"
+export NZBGETPASS="$daemonpass"
+"$PWD/scripts/setup-secure-env.sh" --auto
 fi
 
 # Finish up the config
@@ -308,14 +319,8 @@ perl -i -pe "s/ControlPassword=tegbzn6789/ControlPassword=$daemonpass/g"  nzbget
 perl -i -pe "s/{MainDir}\/intermediate/{MainDir}\/incomplete/g" nzbget/nzbget.conf
 docker start nzbget > /dev/null 2>&1
 
-# Push the Deluge Daemon and NZBGet Access info the to Auth file and the .env file
+# Push the Deluge Daemon Access info to Auth file
 echo "$daemonun":"$daemonpass":10 >> ./delugevpn/config/auth
-{
-echo "CPDAEMONUN=$daemonun"
-echo "CPDAEMONPASS=$daemonpass"
-echo "NZBGETUN=$daemonun"
-echo "NZBGETPASS=$daemonpass"
-} >> .env
 
 # Configure Homer settings and files
 while [ ! -f homer/config.yml ]; do sleep 1; done
