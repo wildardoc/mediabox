@@ -4,9 +4,52 @@ import os
 import re
 import json
 
+def validate_config(config):
+    """Validate mediabox configuration structure"""
+    required_keys = ['venv_path', 'download_dirs', 'library_dirs']
+    
+    for key in required_keys:
+        if key not in config:
+            raise ValueError(f"Missing required config key: {key}")
+    
+    # Validate venv_path exists
+    if not os.path.exists(config['venv_path']):
+        raise ValueError(f"Virtual environment path does not exist: {config['venv_path']}")
+    
+    # Validate download_dirs structure
+    if not isinstance(config['download_dirs'], list):
+        raise ValueError("'download_dirs' must be a list")
+    
+    for path in config['download_dirs']:
+        if not os.path.exists(path):
+            print(f"Warning: Download directory does not exist: {path}")
+    
+    # Validate library_dirs structure
+    if not isinstance(config['library_dirs'], dict):
+        raise ValueError("'library_dirs' must be a dictionary")
+    
+    required_library_keys = ['tv', 'movies', 'music']
+    for lib_key in required_library_keys:
+        if lib_key not in config['library_dirs']:
+            print(f"Warning: Missing library directory key: {lib_key}")
+        else:
+            lib_path = config['library_dirs'][lib_key]
+            if not os.path.exists(lib_path):
+                print(f"Warning: Library directory does not exist: {lib_path}")
+    
+    return config
+
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "mediabox_config.json")
-with open(CONFIG_PATH, "r") as f:
-    config = json.load(f)
+try:
+    with open(CONFIG_PATH, "r") as f:
+        config = json.load(f)
+    config = validate_config(config)
+except FileNotFoundError:
+    raise FileNotFoundError(f"Configuration file not found: {CONFIG_PATH}")
+except json.JSONDecodeError as e:
+    raise ValueError(f"Invalid JSON in configuration file: {e}")
+except Exception as e:
+    raise ValueError(f"Configuration validation failed: {e}")
 
 venv_path = config["venv_path"]
 DOWNLOAD_DIRS = config["download_dirs"]

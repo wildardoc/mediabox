@@ -136,6 +136,42 @@ read -r -p "Where do you store your MUSIC media? (Please use full path - /path/t
 read -r -p "Where do you store your PHOTO media? (Please use full path - /path/to/photos ): " photodirectory
 fi
 
+# Validate user-provided directory paths
+validate_user_paths() {
+    local path="$1"
+    local description="$2"
+    
+    if [ -n "$path" ]; then
+        # Check if path is absolute
+        if [[ "$path" != /* ]]; then
+            printf "Warning: %s path '%s' is not absolute. Consider using full paths starting with '/'.\\n" "$description" "$path"
+        fi
+        
+        # Check if parent directory exists for path creation
+        local parent_dir=$(dirname "$path")
+        if [ ! -d "$parent_dir" ] && [ "$parent_dir" != "." ]; then
+            printf "Warning: Parent directory '%s' for %s does not exist. Please ensure it exists or will be created.\\n" "$parent_dir" "$description"
+        fi
+        
+        # Check write permissions if path already exists
+        if [ -d "$path" ] && [ ! -w "$path" ]; then
+            printf "Error: No write permission for existing %s directory: %s\\n" "$description" "$path"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# Validate all provided paths
+printf "\\nValidating provided directory paths...\\n"
+validate_user_paths "$dldirectory" "DOWNLOAD"
+validate_user_paths "$tvdirectory" "TV"
+validate_user_paths "$miscdirectory" "MISC"
+validate_user_paths "$moviedirectory" "MOVIE"
+validate_user_paths "$musicdirectory" "MUSIC"
+validate_user_paths "$photodirectory" "PHOTO"
+printf "Path validation complete.\\n\\n"
+
 # Create the directory structure
 if [ -z "$dldirectory" ]; then
     mkdir -p content/completed
