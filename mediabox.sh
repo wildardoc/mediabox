@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail  # Exit on error, undefined variables, pipe failures
 
 # Check that script was run not as root or with sudo
 if [ "$EUID" -eq 0 ]
