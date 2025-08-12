@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail  # Exit on error, undefined variables, pipe failures
 
 # Enhanced import.sh script for *arr applications
 # Processes newly imported media files through media_update.py conversion system
