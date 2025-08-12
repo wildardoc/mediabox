@@ -1,10 +1,84 @@
 #!/bin/bash
 
+# Enhanced Error Handling Functions
+check_docker_daemon() {
+    echo "🔍 Checking Docker daemon status..."
+    if ! docker info >/dev/null 2>&1; then
+        echo "❌ Docker daemon not running. Please start Docker first."
+        echo "💡 Try: sudo systemctl start docker"
+        exit 1
+    fi
+    echo "✅ Docker daemon is running"
+}
+
+validate_directories() {
+    echo "📁 Validating media directories..."
+    for dir in "$dldirectory" "$tvdirectory" "$moviedirectory" "$musicdirectory" "$miscdirectory" "$photodirectory"; do
+        if [[ -n "$dir" && ! -d "$dir" ]]; then
+            echo "⚠️  Directory doesn't exist: $dir"
+            read -r -p "Create it? (y/n): " create_dir
+            if [[ "$create_dir" == "y" || "$create_dir" == "Y" ]]; then
+                if mkdir -p "$dir"; then
+                    echo "✅ Created directory: $dir"
+                else
+                    echo "❌ Failed to create directory: $dir"
+                    exit 1
+                fi
+            else
+                echo "⚠️  Continuing without creating $dir"
+            fi
+        elif [[ -n "$dir" ]]; then
+            echo "✅ Directory exists: $dir"
+        fi
+    done
+}
+
+check_permissions() {
+    echo "🔐 Checking directory permissions..."
+    local test_dir="$PWD/content"
+    if [[ ! -w "$test_dir" ]] && ! mkdir -p "$test_dir" 2>/dev/null; then
+        echo "❌ Cannot create directories in current location: $PWD"
+        echo "💡 Please ensure you have write permissions or run from a different directory"
+        exit 1
+    fi
+    echo "✅ Directory permissions OK"
+}
+
+test_network_connectivity() {
+    echo "🌐 Testing network connectivity..."
+    if ! curl -s --connect-timeout 5 https://api.github.com/repos/docker/compose/releases/latest >/dev/null; then
+        echo "⚠️  Limited or no internet connectivity detected"
+        echo "💡 Some features may not work properly (updates, VPN config download)"
+        read -r -p "Continue anyway? (y/n): " continue_offline
+        if [[ "$continue_offline" != "y" && "$continue_offline" != "Y" ]]; then
+            echo "❌ Setup cancelled"
+            exit 1
+        fi
+    else
+        echo "✅ Network connectivity OK"
+    fi
+}
+
+safe_docker_operation() {
+    local operation="$1"
+    local container="$2"
+    if ! docker "$operation" "$container" > /dev/null 2>&1; then
+        echo "⚠️  Docker $operation failed for $container (this may be normal if container doesn't exist)"
+        return 1
+    fi
+    return 0
+}
+
 # Check that script was run not as root or with sudo
 if [ "$EUID" -eq 0 ]
   then echo "Please do not run this script as root or using sudo"
   exit
 fi
+
+# Run initial system checks
+check_docker_daemon
+check_permissions
+test_network_connectivity
 
 # See if we need to check GIT for updates
 if [ -e .env ]; then
@@ -73,7 +147,12 @@ if [ -e 1.env ]; then
     mv 1.env .env
     # Stop the current Mediabox stack
     printf "\\n\\nStopping Current Mediabox containers.\\n\\n"
-    docker-compose stop
+    if ! docker-compose stop; then
+        echo "❌ Failed to stop Mediabox containers"
+        echo "💡 You may need to stop containers manually: docker-compose stop"
+        exit 1
+    fi
+    echo "✅ Mediabox containers stopped successfully"
     # Make a datestampted copy of the existing .env file
     mv .env "$(date +"%Y-%m-%d_%H:%M").env"
 fi
@@ -135,50 +214,67 @@ read -r -p "Where do you store your MUSIC media? (Please use full path - /path/t
 read -r -p "Where do you store your PHOTO media? (Please use full path - /path/to/photos ): " photodirectory
 fi
 
-# Create the directory structure
+# Validate user-specified directories before creating content structure
+validate_directories
+
+# Create the directory structure with error checking
+echo "📁 Creating mediabox directory structure..."
+
+create_directory() {
+    local dir="$1"
+    if ! mkdir -p "$dir"; then
+        echo "❌ Failed to create directory: $dir"
+        exit 1
+    fi
+}
+
 if [ -z "$dldirectory" ]; then
-    mkdir -p content/completed
-    mkdir -p content/incomplete
+    create_directory "content/completed"
+    create_directory "content/incomplete"
     dldirectory="$PWD/content"
 else
-  mkdir -p "$dldirectory"/completed
-  mkdir -p "$dldirectory"/incomplete
+    create_directory "$dldirectory/completed"
+    create_directory "$dldirectory/incomplete"
 fi
 if [ -z "$tvdirectory" ]; then
-    mkdir -p content/tv
+    create_directory "content/tv"
     tvdirectory="$PWD/content/tv"
 fi
 if [ -z "$miscdirectory" ]; then
-    mkdir -p content/misc
+    create_directory "content/misc"
     miscdirectory="$PWD/content/misc"
 fi
 if [ -z "$moviedirectory" ]; then
-    mkdir -p content/movies
+    create_directory "content/movies"
     moviedirectory="$PWD/content/movies"
 fi
 if [ -z "$musicdirectory" ]; then
-    mkdir -p content/music
+    create_directory "content/music"
     musicdirectory="$PWD/content/music"
 fi
 if [ -z "$photodirectory" ]; then
-    mkdir -p content/photo
+    create_directory "content/photo"
     photodirectory="$PWD/content/photo"
 fi
 
-mkdir -p delugevpn
-mkdir -p delugevpn/config/openvpn
-mkdir -p historical/env_files
-mkdir -p homer
-mkdir -p lidarr
-mkdir -p nzbget
-mkdir -p overseerr
-mkdir -p "plex/Library/Application Support/Plex Media Server/Logs"
-mkdir -p portainer
-mkdir -p prowlarr
-mkdir -p radarr
-mkdir -p sonarr
-mkdir -p tautulli
-mkdir -p maintainerr
+# Create application directories with error checking
+echo "📁 Creating application directories..."
+create_directory "delugevpn"
+create_directory "delugevpn/config/openvpn"
+create_directory "historical/env_files"
+create_directory "homer"
+create_directory "lidarr"
+create_directory "nzbget"
+create_directory "overseerr"
+create_directory "plex/Library/Application Support/Plex Media Server/Logs"
+create_directory "portainer"
+create_directory "prowlarr"
+create_directory "radarr"
+create_directory "sonarr"
+create_directory "tautulli"
+create_directory "maintainerr"
+
+echo "✅ Directory structure created successfully"
 
 # Create menu - Select and Move the PIA VPN files
 echo "The following PIA Servers are avialable that support port-forwarding (for DelugeVPN); Please select one:"
@@ -252,15 +348,15 @@ echo "VPN_REMOTE=$vpnremote"
 echo ".env file creation complete"
 printf "\\n\\n"
 
-# Adjust for the Tautulli replacement of PlexPy
-docker rm -f plexpy > /dev/null 2>&1
-# Adjust for the Watchtower replacement of Ouroboros
-docker rm -f ouroboros > /dev/null 2>&1
-# Adjust for old uhttpd web container - Noted in issue #47
-docker rm -f uhttpd > /dev/null 2>&1
+# Clean up old containers (safe operations)
+echo "🧹 Cleaning up legacy containers..."
+safe_docker_operation "rm" "-f plexpy"
+safe_docker_operation "rm" "-f ouroboros" 
+safe_docker_operation "rm" "-f uhttpd"
+safe_docker_operation "rm" "-f muximux"
 [ -d "www/" ] && mv www/ historical/www/
 # Adjust for removal of Muximux
-docker rm -f muximux > /dev/null 2>&1
+safe_docker_operation "rm" "-f muximux"
 [ -d "muximux/" ] && mv muximux/ historical/muximux/
 # Move back-up .env files
 mv 20*.env historical/env_files/ > /dev/null 2>&1
@@ -271,11 +367,18 @@ rm -f settings.ini.php > /dev/null 2>&1
 rm -f prep/mediaboxconfig.php > /dev/null 2>&1
 
 # Download & Launch the containers
-echo "The containers will now be pulled and launched"
+echo "🚀 The containers will now be pulled and launched"
 echo "This may take a while depending on your download speed"
 read -r -p "Press any key to continue... " -n1 -s
 printf "\\n\\n"
-docker-compose up -d --remove-orphans
+echo "📥 Starting Docker containers..."
+if ! docker-compose up -d --remove-orphans; then
+    echo "❌ Failed to start Docker containers"
+    echo "💡 Please check docker-compose.yml and .env files for errors"
+    echo "💡 Try running: docker-compose logs"
+    exit 1
+fi
+echo "✅ Docker containers started successfully"
 printf "\\n\\n"
 
 # Configure the access to the Deluge Daemon
@@ -303,28 +406,39 @@ printf "Configuring DelugeVPN and Permissions \\n"
 printf "This may take a few minutes...\\n\\n"
 
 # Configure DelugeVPN: Set Daemon access on, delete the core.conf~ file
+echo "⚙️  Configuring DelugeVPN..."
 while [ ! -f delugevpn/config/core.conf ]; do sleep 1; done
-docker stop delugevpn > /dev/null 2>&1
+safe_docker_operation "stop" "delugevpn"
 rm delugevpn/config/core.conf~ > /dev/null 2>&1
 perl -i -pe 's/"allow_remote": false,/"allow_remote": true,/g'  delugevpn/config/core.conf
 perl -i -pe 's/"move_completed": false,/"move_completed": true,/g'  delugevpn/config/core.conf
-docker start delugevpn > /dev/null 2>&1
+if safe_docker_operation "start" "delugevpn"; then
+    echo "✅ DelugeVPN configured and restarted"
+else
+    echo "⚠️  DelugeVPN configuration applied, but restart failed"
+fi
 
 # Configure NZBGet
+echo "⚙️  Configuring NZBGet..."
 [ -d "content/nbzget" ] && mv content/nbzget/* content/ && rmdir content/nbzget
 while [ ! -f nzbget/nzbget.conf ]; do sleep 1; done
-docker stop nzbget > /dev/null 2>&1
+safe_docker_operation "stop" "nzbget"
 perl -i -pe "s/ControlUsername=nzbget/ControlUsername=$daemonun/g"  nzbget/nzbget.conf
 perl -i -pe "s/ControlPassword=tegbzn6789/ControlPassword=$daemonpass/g"  nzbget/nzbget.conf
 perl -i -pe "s/{MainDir}\/intermediate/{MainDir}\/incomplete/g" nzbget/nzbget.conf
-docker start nzbget > /dev/null 2>&1
+if safe_docker_operation "start" "nzbget"; then
+    echo "✅ NZBGet configured and restarted"
+else
+    echo "⚠️  NZBGet configuration applied, but restart failed"
+fi
 
 # Push the Deluge Daemon Access info to Auth file
 echo "$daemonun":"$daemonpass":10 >> ./delugevpn/config/auth
 
 # Configure Homer settings and files
+echo "⚙️  Configuring Homer..."
 while [ ! -f homer/config.yml ]; do sleep 1; done
-docker stop homer > /dev/null 2>&1
+safe_docker_operation "stop" "homer"
 cp prep/config.yml homer/config.yml
 cp prep/mediaboxconfig.html homer/mediaboxconfig.html
 cp prep/portmap.html homer/portmap.html
@@ -335,7 +449,11 @@ perl -i -pe "s/locip/$locip/g" homer/config.yml
 perl -i -pe "s/locip/$locip/g" homer/mediaboxconfig.html
 perl -i -pe "s/daemonun/$daemonun/g" homer/mediaboxconfig.html
 perl -i -pe "s/daemonpass/$daemonpass/g" homer/mediaboxconfig.html
-docker start homer > /dev/null 2>&1
+if safe_docker_operation "start" "homer"; then
+    echo "✅ Homer configured and restarted"
+else
+    echo "⚠️  Homer configuration applied, but restart failed"
+fi
 
 # Create Port Mapping file
 for i in $(docker ps --format {{.Names}} | sort); do printf "\n === $i Ports ===\n" && docker port "$i"; done > homer/ports.txt
