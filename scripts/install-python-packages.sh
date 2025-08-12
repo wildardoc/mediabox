@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail  # Exit on error, undefined variables, pipe failures
 
 # Custom initialization script to install Python packages
 # This runs during container startup

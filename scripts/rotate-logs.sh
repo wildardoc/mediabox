@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail  # Exit on error, undefined variables, pipe failures
 
 # Log rotation script for mediabox
 # Manages media_update and import log files to prevent disk space issues
