@@ -426,10 +426,10 @@ echo "This may take a while depending on your download speed"
 read -r -p "Press any key to continue... " -n1 -s
 printf "\\n\\n"
 echo "📥 Starting Docker containers..."
-if ! docker-compose up -d --remove-orphans; then
+if ! docker-compose --profile full up -d --remove-orphans; then
     echo "❌ Failed to start Docker containers"
     echo "💡 Please check docker-compose.yml and .env files for errors"
-    echo "💡 Try running: docker-compose logs"
+    echo "💡 Try running: docker-compose --profile full logs"
     exit 1
 fi
 echo "✅ Docker containers started successfully"

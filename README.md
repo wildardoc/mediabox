@@ -23,6 +23,44 @@ Your current Mediabox deployment includes:
 
 ## 🚀 **Enhanced Features**
 
+### **Service Profiles for Flexible Deployment** 🎯
+
+Mediabox now supports Docker Compose profiles for resource-efficient deployments based on your needs:
+
+**Available Profiles:**
+- **`core`**: Essential media management services (sonarr, radarr, prowlarr, delugevpn, homer)
+- **`full`**: All services - complete mediabox experience (default behavior)
+- **`plex`**: Plex Media Server with Tautulli monitoring
+- **`monitoring`**: Plex with Tautulli for usage statistics (same as plex profile)
+- **`music`**: Lidarr for music management
+- **`usenet`**: NZBGet for Usenet downloads  
+- **`requests`**: Overseerr for media request management
+- **`maintenance`**: Maintainerr and Portainer for system management
+
+**Usage Examples:**
+```bash
+# Start core services only (minimal resource usage)
+docker compose --profile core up -d
+
+# Start everything (traditional behavior)  
+docker compose --profile full up -d
+
+# Start core services with Plex
+docker compose --profile core --profile plex up -d
+
+# Start Plex with monitoring (note: plex profile includes tautulli)
+docker compose --profile plex up -d
+
+# Custom combination: core + music + requests
+docker compose --profile core --profile music --profile requests up -d
+```
+
+**Benefits:**
+- **💰 Resource Savings**: Run only what you need
+- **🔧 Flexible Deployment**: Perfect for different hardware configurations
+- **⚡ Faster Startup**: Fewer containers = quicker initialization
+- **📊 Better Performance**: Optimized resource allocation
+
 ### **Automated Media Processing**
 Mediabox includes intelligent media processing that automatically triggers when new content is downloaded:
 
@@ -126,7 +164,33 @@ As the script runs you will be prompted for:
     * **username**
     * **password**
 
-Upon completion, the script will launch your mediabox containers.  
+Upon completion, the script will launch your mediabox containers using the **full** profile (all services).
+
+### **Customizing Your Deployment with Profiles**
+
+After initial setup, you can customize which services run using Docker Compose profiles:
+
+```bash
+# Stop all services
+docker compose down
+
+# Start with different profiles
+docker compose --profile core up -d                    # Essential services only
+docker compose --profile core --profile plex up -d     # Core + Plex
+docker compose --profile full up -d                    # All services (default)
+```
+
+**Profile Reference:**
+- **Core**: `sonarr`, `radarr`, `prowlarr`, `delugevpn`, `homer` (essential media management)
+- **Full**: All 12 services (complete functionality)  
+- **Plex**: `plex`, `tautulli` (media server with monitoring)
+- **Monitoring**: `plex`, `tautulli` (same as plex profile)
+- **Music**: `lidarr` (music management)
+- **Usenet**: `nzbget` (Usenet downloads)
+- **Requests**: `overseerr` (media requests)
+- **Maintenance**: `maintainerr`, `portainer` (system management)
+
+**Note**: The `mediabox.sh` script uses `docker compose --profile full up -d` for initial deployment. You can customize this after setup.  
 
 ## 🔐 **Credential Security**
 
