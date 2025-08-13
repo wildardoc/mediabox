@@ -336,11 +336,30 @@ cat scripts/cleanup_downloads.log
 - **Age-Based Cleanup**: Removes unmatched files older than 7 days
 - **Weekly Schedule**: Runs automatically on Mondays at 3 AM
 
+### **Automated Testing**
+Run the integrated test suite to validate system health:
+```bash
+cd scripts && ./test-automation.sh
+```
+
+**Test Coverage:**
+- ✅ **Configuration Loading**: Validates `mediabox_config.json` structure
+- ✅ **Script Executability**: Ensures core scripts are executable and syntactically valid
+- ✅ **Python Environment**: Verifies Python dependencies (ffmpeg-python, etc.)
+- ✅ **Directory Structure**: Confirms required files and permissions
+- ✅ **Basic Functionality**: Tests configuration parsing and access
+
+**Benefits:**
+- **Early Detection**: Catch configuration issues before they cause problems
+- **System Validation**: Verify integrity after changes or updates
+- **Quick Health Check**: Get instant feedback on system status
+
 ### **Troubleshooting**
 - **Logs**: Check `scripts/import_YYYYMMDD.log` for webhook activity
 - **Processing**: Check `scripts/media_update_*.log` for conversion details  
 - **Webhooks**: Test via *arr application Settings → Connect → Test
 - **Dependencies**: Containers auto-install Python packages on startup
+- **System Health**: Run `./scripts/test-automation.sh` for comprehensive validation
 
 **Thanks go out to:**
 
