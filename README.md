@@ -87,6 +87,8 @@ Add the current user to the docker group:
 
 Adjustments for the the DelugeVPN container
 
+**VPN Configuration**: Mediabox uses WireGuard for VPN connectivity, providing faster performance and simpler configuration compared to legacy OpenVPN methods.
+
 `$ sudo /sbin/modprobe iptable_mangle`
 
 `$ sudo bash -c "echo iptable_mangle >> /etc/modules"`
