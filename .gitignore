@@ -1,15 +1,53 @@
-README.md
-content
-.venv
-media_update_??????????????.log
+# ==============================================================================
+# MEDIABOX .GITIGNORE
+# ==============================================================================
+# Organized gitignore for clean repository management
 
-### Python ###
-# Byte-compiled / optimized / DLL files
+# ------------------------------------------------------------------------------
+# MEDIABOX RUNTIME FILES
+# ------------------------------------------------------------------------------
+.env                            # Environment variables (contains secrets)
+content/                        # User media content  
+mediabox_config.json           # Generated configuration file
+
+# Container persistent data
+delugevpn/
+downloads/
+historical/
+homer/
+lidarr/
+maintainerr/
+nzbget/
+overseerr/
+plex/
+portainer/
+prowlarr/
+radarr/
+sonarr/
+tautulli/
+
+# Legacy/unused containers
+jackett/
+nzbhydra2/
+ombi/
+sabnzbd/
+
+# VPN configuration files (legacy - WireGuard uses automatic config)
+ovpn/
+
+# ------------------------------------------------------------------------------
+# DEVELOPMENT & BUILD FILES  
+# ------------------------------------------------------------------------------
+.venv/                          # Python virtual environment
+venv/
+env/
+ENV/
+
+# Python cache and build files
 __pycache__/
 *.py[cod]
 *$py.class
 
-# C extensions
 *.so
 
 # Distribution / packaging
@@ -17,7 +55,6 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-downloads/
 eggs/
 .eggs/
 lib/
@@ -30,70 +67,33 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual environments
-.venv/
-venv/
-env/
-ENV/
+# IDE and editor files
+.idea/                          # PyCharm
+.vscode/                        # VS Code
 
-# Log files
+# ------------------------------------------------------------------------------
+# LOG FILES
+# ------------------------------------------------------------------------------
 *.log
 *.log.*
 media_update_??????????????.log
 
-# PyCharm
-.idea/
-
-# VS Code
-.vscode/
-
-### Windows ###
-# Windows thumbnail cache files
+# ------------------------------------------------------------------------------
+# OPERATING SYSTEM FILES
+# ------------------------------------------------------------------------------
+# Windows
 Thumbs.db
 ehthumbs.db
 ehthumbs_vista.db
-
-# Folder config file
 Desktop.ini
-
-# Recycle Bin used on file shares
 $RECYCLE.BIN/
-
-# Windows Installer files
 *.cab
 *.msi
 *.msm
 *.msp
-
-# Windows shortcuts
 *.lnk
 
-.env
-# VPN configuration files (contain sensitive data)
-ovpn/
-
-# Documentation and notes (local only)
-CREDENTIAL_SECURITY_GUIDE.md
-SECURITY_IMPLEMENTATION_COMPLETE.md
-IMPROVEMENT_RECOMMENDATIONS.md
-
-delugevpn/
-downloads/
-historical/
-homer/
-jackett/
-lidarr/
-make_zfs.sh
-nzbget/
-nzbhydra2/
-ombi/
-overseerr/
-plex/
-portainer/
-prowlarr/
-radarr/
-sabnzbd/
-sonarr/
-tautulli/
-maintainerr/
-mediabox_config.json
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
