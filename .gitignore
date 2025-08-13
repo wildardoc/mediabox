@@ -7,8 +7,7 @@
 # MEDIABOX RUNTIME FILES
 # ------------------------------------------------------------------------------
 .env                            # Environment variables (contains secrets)
-content/                        # User media content  
-mediabox_config.json           # Generated configuration file
+content/                        # User media content
 
 # Container persistent data
 delugevpn/
@@ -38,10 +37,10 @@ ovpn/
 # ------------------------------------------------------------------------------
 # DEVELOPMENT & BUILD FILES  
 # ------------------------------------------------------------------------------
-.venv/                          # Python virtual environment
-venv/
-env/
-ENV/
+**/.venv/                       # Python virtual environment (any location)
+**/venv/
+**/env/
+**/ENV/
 
 # Python cache and build files
 __pycache__/
@@ -97,3 +96,11 @@ $RECYCLE.BIN/
 .DS_Store
 .AppleDouble
 .LSOverride
+
+# ------------------------------------------------------------------------------
+# SPECIFIC FILE IGNORES
+# ------------------------------------------------------------------------------
+# These specific paths need explicit entries due to gitignore pattern limitations
+.env
+scripts/.venv/
+scripts/mediabox_config.json
