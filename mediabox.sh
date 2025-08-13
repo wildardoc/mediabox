@@ -370,7 +370,6 @@ echo "PHOTODIR=$photodirectory"
 echo "CIDR_ADDRESS=$lannet"
 echo "TZ=$time_zone"
 echo "PMSTAG=$pmstag"
-echo "VPN_REMOTE=$vpnremote"
 } >> .env
 echo ".env file creation complete"
 printf "\\n\\n"
