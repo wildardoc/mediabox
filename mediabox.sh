@@ -314,7 +314,7 @@ fi
 # Create application directories with error checking
 echo "📁 Creating application directories..."
 create_directory "delugevpn"
-create_directory "delugevpn/config/openvpn"
+
 create_directory "historical/env_files"
 create_directory "homer"
 create_directory "lidarr"
@@ -330,38 +330,11 @@ create_directory "maintainerr"
 
 echo "✅ Directory structure created successfully"
 
-# Create menu - Select and Move the PIA VPN files
-echo "The following PIA Servers are avialable that support port-forwarding (for DelugeVPN); Please select one:"
-PS3="Use a number to select a Server File or 'c' to cancel: "
-# List the ovpn files
-select filename in ovpn/*.ovpn
-do
-    # leave the loop if the user says 'c'
-    if [[ "$REPLY" == c ]]; then break; fi
-    # complain if no file was selected, and loop to ask again
-    if [[ "$filename" == "" ]]
-    then
-        echo "'$REPLY' is not a valid number"
-        continue
-    fi
-    # now we can use the selected file
-    echo "$filename selected"
-    # remove any existing ovpn, crt & pem files in the deluge config/ovpn
-    rm delugevpn/config/openvpn/*.ovpn > /dev/null 2>&1
-    rm delugevpn/config/openvpn/*.crt > /dev/null 2>&1
-    rm delugevpn/config/openvpn/*.pem > /dev/null 2>&1
-    # copy the selected ovpn file to deluge config/ovpn
-    cp "$filename" delugevpn/config/openvpn/ > /dev/null 2>&1
-    vpnremote=$(grep "remote" "$filename" | cut -d ' ' -f2  | head -1)
-    # Adjust for the PIA OpenVPN ciphers fallback
-    echo "cipher aes-256-gcm" >> delugevpn/config/openvpn/*.ovpn
-    # echo "ncp-disable" >> delugevpn/config/openvpn/*.ovpn -- possibly not needed anymore
-    # it'll ask for another unless we leave the loop
-    break
-done
-# TODO - Add a default server selection if none selected ..
-cp ovpn/*.crt delugevpn/config/openvpn/ > /dev/null 2>&1
-cp ovpn/*.pem delugevpn/config/openvpn/ > /dev/null 2>&1
+# WireGuard VPN Configuration
+echo "🔒 Configuring WireGuard VPN for DelUgeVPN..."
+echo "✅ WireGuard is configured and will automatically connect using your PIA credentials"
+echo "ℹ️  The container will automatically select the best available PIA WireGuard server"
+printf "\\n"
 
 # Create the .env file
 echo "Creating the .env file with secure credential sourcing"
