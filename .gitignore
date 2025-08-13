@@ -69,6 +69,9 @@ $RECYCLE.BIN/
 *.lnk
 
 .env
+# VPN configuration files (contain sensitive data)
+ovpn/
+
 # Documentation and notes (local only)
 CREDENTIAL_SECURITY_GUIDE.md
 SECURITY_IMPLEMENTATION_COMPLETE.md
