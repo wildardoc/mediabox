@@ -273,13 +273,104 @@ echo ""
 # Create the directory structure with error checking
 echo "📁 Creating mediabox directory structure..."
 
+# ZFS Detection and Dataset Creation
+detect_zfs() {
+    # Check if current directory is on ZFS
+    local fs_type
+    fs_type=$(df -T . 2>/dev/null | tail -1 | awk '{print $2}')
+    [[ "$fs_type" == "zfs" ]]
+}
+
+get_zfs_dataset() {
+    # Get the most specific ZFS dataset for current directory
+    local current_path
+    current_path=$(realpath "$PWD")
+    local best_match=""
+    local best_length=0
+    
+    zfs list -H -o name,mountpoint | while read -r dataset mountpoint; do
+        if [[ "$current_path" == "$mountpoint"* ]] && [[ ${#mountpoint} -gt $best_length ]]; then
+            best_match="$dataset"
+            best_length=${#mountpoint}
+        fi
+    done | tail -1
+    
+    # Alternative approach: find exact match first
+    zfs list -H -o name,mountpoint | awk -v path="$current_path" '
+    BEGIN { best_len = 0; best_name = "" }
+    {
+        if (index(path, $2) == 1 && length($2) > best_len) {
+            best_len = length($2)
+            best_name = $1
+        }
+    }
+    END { print best_name }'
+}
+
 create_directory() {
     local dir="$1"
-    if ! mkdir -p "$dir"; then
-        echo "❌ Failed to create directory: $dir"
-        exit 1
+    local use_zfs="${2:-}"
+    
+    if [[ "$use_zfs" == "true" ]] && detect_zfs; then
+        local parent_dataset
+        parent_dataset=$(get_zfs_dataset)
+        
+        if [[ -n "$parent_dataset" ]]; then
+            local dataset_name="$parent_dataset/$dir"
+            echo "📦 Creating ZFS dataset: $dataset_name"
+            
+            if sudo zfs create "$dataset_name"; then
+                # Set proper ownership
+                sudo chown "$USER:$USER" "$dir"
+                echo "✅ Created ZFS dataset: $dataset_name"
+            else
+                echo "❌ Failed to create ZFS dataset: $dataset_name"
+                echo "📁 Falling back to regular directory creation..."
+                if ! mkdir -p "$dir"; then
+                    echo "❌ Failed to create directory: $dir"
+                    exit 1
+                fi
+            fi
+        else
+            echo "⚠️  Could not determine parent ZFS dataset, using regular mkdir"
+            if ! mkdir -p "$dir"; then
+                echo "❌ Failed to create directory: $dir"
+                exit 1
+            fi
+        fi
+    else
+        # Regular directory creation
+        if ! mkdir -p "$dir"; then
+            echo "❌ Failed to create directory: $dir"
+            exit 1
+        fi
     fi
 }
+
+# ZFS Dataset Creation Option
+USE_ZFS_DATASETS="false"
+if detect_zfs; then
+    echo ""
+    echo "🗂️  ZFS filesystem detected!"
+    echo "   Current directory is on ZFS, which allows creating datasets instead of regular directories."
+    echo "   Benefits of ZFS datasets:"
+    echo "   • Individual snapshots for each service"
+    echo "   • Compression and deduplication per service"
+    echo "   • Individual mount options and quotas"
+    echo "   • Better backup and replication capabilities"
+    echo ""
+    read -r -p "Create ZFS datasets for service directories instead of regular folders? (y/n): " use_zfs_response
+    
+    if [[ "$use_zfs_response" == "y" || "$use_zfs_response" == "Y" ]]; then
+        USE_ZFS_DATASETS="true"
+        echo "✅ Will create ZFS datasets for service directories"
+    else
+        echo "📁 Will use regular directories"
+    fi
+else
+    echo "📁 Regular filesystem detected, using standard directories"
+fi
+echo ""
 
 # Create the directory structure
 if [ -z "$dldirectory" ]; then
@@ -313,20 +404,20 @@ fi
 
 # Create application directories with error checking
 echo "📁 Creating application directories..."
-create_directory "delugevpn"
+create_directory "delugevpn" "$USE_ZFS_DATASETS"
 
 create_directory "historical/env_files"
-create_directory "homer"
-create_directory "lidarr"
-create_directory "nzbget"
-create_directory "overseerr"
+create_directory "homer" "$USE_ZFS_DATASETS"
+create_directory "lidarr" "$USE_ZFS_DATASETS"
+create_directory "nzbget" "$USE_ZFS_DATASETS"
+create_directory "overseerr" "$USE_ZFS_DATASETS"
 create_directory "plex/Library/Application Support/Plex Media Server/Logs"
-create_directory "portainer"
-create_directory "prowlarr"
-create_directory "radarr"
-create_directory "sonarr"
-create_directory "tautulli"
-create_directory "maintainerr"
+create_directory "portainer" "$USE_ZFS_DATASETS"
+create_directory "prowlarr" "$USE_ZFS_DATASETS"
+create_directory "radarr" "$USE_ZFS_DATASETS"
+create_directory "sonarr" "$USE_ZFS_DATASETS"
+create_directory "tautulli" "$USE_ZFS_DATASETS"
+create_directory "maintainerr" "$USE_ZFS_DATASETS"
 
 echo "✅ Directory structure created successfully"
 
