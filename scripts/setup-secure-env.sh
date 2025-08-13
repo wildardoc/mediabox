@@ -72,7 +72,8 @@ if [[ "$AUTO_MODE" == false ]]; then
         echo "Backup created: .env.backup.$(date +%Y%m%d_%H%M%S)"
     fi
 
-    # Remove sensitive credentials from main .env and add source line
+    # Remove sensitive credentials from main .env and add them directly
+    # (Docker Compose .env files don't support shell sourcing)
     if [[ -f .env ]]; then
         sed -i '/^PIAUNAME=/d' .env
         sed -i '/^PIAPASS=/d' .env  
@@ -80,19 +81,31 @@ if [[ "$AUTO_MODE" == false ]]; then
         sed -i '/^CPDAEMONPASS=/d' .env
         sed -i '/^NZBGETUN=/d' .env
         sed -i '/^NZBGETPASS=/d' .env
+        sed -i '/^# Source secure credentials/d' .env
+        sed -i '/^\. .*credentials\.env/d' .env
 
-        # Add source line at the top if not already present
-        if ! grep -q "^. $SECURE_ENV" .env; then
-            sed -i '1i# Source secure credentials\n. '"$SECURE_ENV"'\n' .env
-        fi
-        echo "✅ Main .env file updated to use secure credentials"
+        # Add credentials directly to .env file with source comment
+        {
+            echo "# Credentials (sourced from $SECURE_ENV)"
+            echo "# Keep this file in .gitignore to prevent credential exposure"
+            echo "PIAUNAME=$pia_username"
+            echo "PIAPASS=$pia_password"
+            echo "CPDAEMONUN=$daemon_username"
+            echo "CPDAEMONPASS=$daemon_pass" 
+            echo "NZBGETUN=$daemon_username"
+            echo "NZBGETPASS=$daemon_pass"
+            echo ""
+        } >> .env
+        
+        echo "✅ Main .env file updated with credentials (Docker Compose compatible)"
     fi
 fi
 
 echo ""
 echo "IMPORTANT:"
 echo "- Secure credentials stored in: $SECURE_ENV" 
-echo "- Main .env no longer contains sensitive data"
+echo "- Credentials added to .env file (Docker Compose compatible)"
+echo "- Ensure .env is in .gitignore to prevent credential exposure"
 if [[ "$AUTO_MODE" == false ]] && [[ -f .env ]]; then
     echo "- Backup created with timestamp"
 fi
