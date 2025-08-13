@@ -55,6 +55,12 @@ services:
     volumes:
         - '${DLDIR}:/data'
         - './delugevpn/config:/config'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8112"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   # ----------------------------------------
   # HOMER - Dashboard
@@ -71,6 +77,12 @@ services:
         - GID=${PGID}
     volumes:
         - './homer:/www/assets'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   # ----------------------------------------
   # LIDARR - Music Management & Automation
@@ -96,6 +108,12 @@ services:
         - '/etc/localtime:/etc/localtime:ro'
         - './scripts:/scripts'
         - './scripts/install-python-packages.sh:/custom-cont-init.d/install-python-packages'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8686/api/v1/system/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # ----------------------------------------
   # MAINTAINERR - Plex Library Management
@@ -131,6 +149,12 @@ services:
     volumes:
       - './nzbget:/config'
       - '${DLDIR}:/downloads'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6789/jsonrpc/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # ----------------------------------------
   # OVERSEERR - Media Requests
@@ -149,6 +173,12 @@ services:
         - ${IP_ADDRESS}:5055:5055
     volumes:
         - ./overseerr:/config
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5055/api/v1/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # ----------------------------------------
   # PLEX
@@ -204,6 +234,12 @@ services:
         - './portainer:/data'
         - '/var/run/docker.sock:/var/run/docker.sock'
     command: -H unix:///var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:9443/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # ----------------------------------------
   # PROWLARR - Indexer Management
@@ -221,6 +257,12 @@ services:
       - TZ=${TZ}
     volumes:
       - './prowlarr:/config'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9696/api/v1/system/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # ----------------------------------------
   # RADARR - Movie Management & Automation
@@ -245,6 +287,12 @@ services:
         - '${MOVIEDIR}:/movies'
         - './scripts:/scripts'
         - './scripts/install-python-packages.sh:/custom-cont-init.d/install-python-packages'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7878/api/v3/system/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # ----------------------------------------
   # SONARR - TV Show Management & Automation
@@ -269,6 +317,12 @@ services:
         - '${TVDIR}:/tv'
         - './scripts:/scripts'
         - './scripts/install-python-packages.sh:/custom-cont-init.d/install-python-packages'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8989/api/v3/system/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # ----------------------------------------
   # TAUTULLI - Plex Usage Statistics

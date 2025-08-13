@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail  # Exit on error, undefined variables, pipe failures
 
 # Enhanced Error Handling Functions
 check_docker_daemon() {
@@ -214,8 +215,60 @@ read -r -p "Where do you store your MUSIC media? (Please use full path - /path/t
 read -r -p "Where do you store your PHOTO media? (Please use full path - /path/to/photos ): " photodirectory
 fi
 
-# Validate user-specified directories before creating content structure
-validate_directories
+# Validate user-provided directory paths with comprehensive checking
+validate_user_paths() {
+    local path="$1"
+    local description="$2"
+    
+    if [ -n "$path" ]; then
+        # Check if path is absolute
+        if [[ "$path" != /* ]]; then
+            printf "⚠️  Warning: %s path '%s' is not absolute. Consider using full paths starting with '/'.\\n" "$description" "$path"
+        fi
+        
+        # Check if parent directory exists for path creation
+        local parent_dir=$(dirname "$path")
+        if [ ! -d "$parent_dir" ] && [ "$parent_dir" != "." ]; then
+            printf "⚠️  Warning: Parent directory '%s' for %s does not exist. Please ensure it exists or will be created.\\n" "$parent_dir" "$description"
+        fi
+        
+        # Check write permissions if path already exists
+        if [ -d "$path" ] && [ ! -w "$path" ]; then
+            printf "❌ Error: No write permission for existing %s directory: %s\\n" "$description" "$path"
+            return 1
+        fi
+        
+        # Interactive directory creation for missing directories
+        if [[ ! -d "$path" ]]; then
+            echo "⚠️  Directory doesn't exist: $path"
+            read -r -p "Create $description directory? (y/n): " create_dir
+            if [[ "$create_dir" == "y" || "$create_dir" == "Y" ]]; then
+                if mkdir -p "$path"; then
+                    echo "✅ Created directory: $path"
+                else
+                    echo "❌ Failed to create directory: $path"
+                    return 1
+                fi
+            else
+                echo "⚠️  Continuing without creating $path"
+            fi
+        else
+            echo "✅ Directory exists: $path"
+        fi
+    fi
+    return 0
+}
+
+# Validate all provided paths
+echo "📁 Validating provided directory paths..."
+validate_user_paths "$dldirectory" "DOWNLOAD"
+validate_user_paths "$tvdirectory" "TV"
+validate_user_paths "$miscdirectory" "MISC"
+validate_user_paths "$moviedirectory" "MOVIE"
+validate_user_paths "$musicdirectory" "MUSIC"
+validate_user_paths "$photodirectory" "PHOTO"
+echo "✅ Path validation complete"
+echo ""
 
 # Create the directory structure with error checking
 echo "📁 Creating mediabox directory structure..."
@@ -228,6 +281,7 @@ create_directory() {
     fi
 }
 
+# Create the directory structure
 if [ -z "$dldirectory" ]; then
     create_directory "content/completed"
     create_directory "content/incomplete"
@@ -443,7 +497,7 @@ cp prep/config.yml homer/config.yml
 cp prep/mediaboxconfig.html homer/mediaboxconfig.html
 cp prep/portmap.html homer/portmap.html
 cp prep/icons/* homer/icons/
-sed '/^PIA/d' < .env > homer/env.txt # Pull PIA creds from the displayed .env file
+sed -E '/^(PIA|CPDAEMON|NZBGET)/d' < .env > homer/env.txt # Filter out all credentials from displayed .env file
 perl -i -pe "s/thishost/$thishost/g" homer/config.yml
 perl -i -pe "s/locip/$locip/g" homer/config.yml
 perl -i -pe "s/locip/$locip/g" homer/mediaboxconfig.html
