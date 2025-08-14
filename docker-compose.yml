@@ -219,7 +219,7 @@ services:
         - '${MOVIEDIR}:/data/movies'
         - '${MUSICDIR}:/data/music'
         - '/Storage/media/Movies_Ripped:/data/movies_ripped'
-        - '${TVDIR}:/data/tvshows'
+        - '${TVDIR}:/data/tv'
         - '${PHOTODIR}:/data/photos'
 
   # ----------------------------------------
