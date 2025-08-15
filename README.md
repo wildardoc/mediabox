@@ -21,6 +21,137 @@ Your current Mediabox deployment includes:
 ### **Optional Components** 
 * **[Plex Media Server](https://www.plex.tv/)** - *Ready for Docker deployment when needed*
 
+## 📚 **First-Time Setup Guide**
+
+### **Prerequisites**
+Before running Mediabox, ensure you have:
+
+1. **Ubuntu 18.04 LTS / 20.04 LTS** (Server or Desktop)
+2. **Private Internet Access (PIA) Account** - Required for torrent functionality
+3. **MyPlex Account (Optional)** - For automatic Plex library updates
+4. **Sufficient Disk Space** - Plan for significant media storage requirements
+
+### **Quick Start Installation**
+
+1. **Install Dependencies**
+   ```bash
+   sudo apt update && sudo apt full-upgrade
+   sudo apt install curl git bridge-utils
+   ```
+
+2. **Install Docker & Docker Compose**
+   ```bash
+   # Install Docker CE
+   curl -fsSL https://get.docker.com -o get-docker.sh && sudo sh get-docker.sh
+   
+   # Install Docker-Compose  
+   sudo curl -s https://api.github.com/repos/docker/compose/releases/latest | grep "browser_download_url" | grep -i -m1 "$(uname -s)"-"$(uname -m)" | cut -d '"' -f4 | xargs sudo curl -L -o /usr/local/bin/docker-compose && sudo chmod +x /usr/local/bin/docker-compose
+   
+   # Configure Docker
+   sudo usermod -aG docker $USER
+   sudo /sbin/modprobe iptable_mangle && sudo bash -c "echo iptable_mangle >> /etc/modules"
+   ```
+
+3. **Reboot System** (Required)
+   ```bash
+   sudo reboot
+   ```
+
+4. **Deploy Mediabox**
+   ```bash
+   git clone https://github.com/wildardoc/mediabox.git && cd mediabox/
+   ./mediabox.sh
+   ```
+
+### **Setup Process Walkthrough**
+
+The `mediabox.sh` script will guide you through configuration:
+
+#### **1. System Validation**
+- Docker daemon health check
+- Network connectivity test  
+- Directory permissions validation
+- Automatic dependency installation
+
+#### **2. PIA VPN Configuration**
+```
+What is your PIA Username?: your_pia_username
+What is your PIA Password: [hidden]
+```
+
+#### **3. Plex Integration Setup** ⭐ *New Feature*
+```
+🎬 Configure Plex Integration
+==================================
+To enable automatic library updates after media processing,
+enter your Plex/MyPlex account details (optional - skip with Enter):
+
+MyPlex Username (email): your_email@example.com  
+MyPlex Password: [hidden]
+```
+
+**Benefits of Plex Integration:**
+- ✅ **Automatic Library Updates** - Plex refreshes libraries after media processing
+- ✅ **Seamless Token Management** - No manual token configuration required
+- ✅ **Secure Credential Storage** - Credentials stored safely, never in code
+- ✅ **Smart Notifications** - Only refreshes the specific library section that changed
+
+#### **4. Media Directory Configuration**  
+Choose your storage paths or use defaults:
+```
+Where do you store your DOWNLOADS?: /path/to/downloads
+Where do you store your TV media?: /path/to/tv  
+Where do you store your MOVIE media?: /path/to/movies
+Where do you store your MUSIC media?: /path/to/music
+```
+
+#### **5. Automated Container Deployment**
+- Docker image download (~1 minute)
+- Container startup (~10 seconds)  
+- Service configuration and validation
+- **Automatic Plex token retrieval** (if credentials provided)
+- Webhook configuration for media processing
+
+### **⚠️ Important Setup Notes**
+
+- **Never Cancel Setup**: The `./mediabox.sh` script takes 5-15 minutes - never cancel mid-process
+- **Credential Security**: All passwords are stored securely in `~/.mediabox/credentials.env` (user-only access)  
+- **Docker Image Pull**: Large downloads - ensure stable internet connection
+- **First Startup**: Allow 10-30 seconds for services to fully initialize
+
+### **Post-Setup Validation**
+
+After setup completes, verify your installation:
+
+```bash
+# Check all containers are running
+docker-compose ps
+
+# Access web interfaces
+open http://your-ip-address    # Homer dashboard
+open http://your-ip-address:8989    # Sonarr (TV)
+open http://your-ip-address:7878    # Radarr (Movies)  
+```
+
+### **🎯 Plex Integration Status**
+
+If you provided MyPlex credentials during setup, the system will automatically:
+- ✅ Retrieve authentication token
+- ✅ Configure library update notifications
+- ✅ Enable automatic refresh after media processing
+
+**Manual Configuration** (if automatic setup failed):
+```bash
+cd scripts  
+python3 get-plex-token.py --interactive
+```
+
+**Updating Existing Credentials:**
+```bash
+cd scripts
+./setup-secure-env.sh
+```
+
 ## 🚀 **Enhanced Features**
 
 ### **Service Profiles for Flexible Deployment** 🎯
