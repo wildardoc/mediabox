@@ -12,6 +12,16 @@ MEDIA_UPDATE_SCRIPT="$SCRIPT_DIR/media_update.py"
 LOG_DIR="$SCRIPT_DIR"
 MAX_LOG_SIZE=10485760  # 10MB in bytes
 
+# Load environment variables for path translation
+ENV_FILE="$SCRIPT_DIR/../.env"
+if [[ -f "$ENV_FILE" ]]; then
+    # Source only the path variables we need for container-to-host path translation
+    TVDIR=$(grep "^TVDIR=" "$ENV_FILE" | cut -d= -f2- || echo "")
+    MOVIEDIR=$(grep "^MOVIEDIR=" "$ENV_FILE" | cut -d= -f2- || echo "")
+    MUSICDIR=$(grep "^MUSICDIR=" "$ENV_FILE" | cut -d= -f2- || echo "")
+    MISCDIR=$(grep "^MISCDIR=" "$ENV_FILE" | cut -d= -f2- || echo "")
+fi
+
 # Enhanced logging function with timestamp and level
 log_message() {
     local level="$1"
@@ -33,6 +43,73 @@ log_message() {
         mv "$log_file" "${log_file}.old"
         echo "[$timestamp] [INFO] Log rotated due to size limit" > "$log_file"
     fi
+}
+
+# Translate container paths to host paths for media processing
+translate_container_path() {
+    local container_path="$1"
+    local host_path="$container_path"
+    
+    log_message "DEBUG" "Container path received: $container_path" >&2
+    
+    # Translate container paths to host paths using .env variables
+    case "$container_path" in
+        /tv/*)
+            if [[ -n "$TVDIR" ]]; then
+                host_path="${container_path/\/tv/$TVDIR}"
+                log_message "INFO" "Path translation: $container_path → $host_path" >&2
+            else
+                log_message "WARNING" "TVDIR not found in .env, cannot translate /tv/ path" >&2
+            fi
+            ;;
+        /movies/*)
+            if [[ -n "$MOVIEDIR" ]]; then
+                host_path="${container_path/\/movies/$MOVIEDIR}"
+                log_message "INFO" "Path translation: $container_path → $host_path" >&2
+            else
+                log_message "WARNING" "MOVIEDIR not found in .env, cannot translate /movies/ path" >&2
+            fi
+            ;;
+        /music/*)
+            if [[ -n "$MUSICDIR" ]]; then
+                host_path="${container_path/\/music/$MUSICDIR}"
+                log_message "INFO" "Path translation: $container_path → $host_path" >&2
+            else
+                log_message "WARNING" "MUSICDIR not found in .env, cannot translate /music/ path" >&2
+            fi
+            ;;
+        /data/movies*)
+            if [[ -n "$MOVIEDIR" ]]; then
+                host_path="${container_path/\/data\/movies/$MOVIEDIR}"
+                log_message "INFO" "Path translation: $container_path → $host_path" >&2
+            fi
+            ;;
+        /data/tv*)
+            if [[ -n "$TVDIR" ]]; then
+                host_path="${container_path/\/data\/tv/$TVDIR}"
+                log_message "INFO" "Path translation: $container_path → $host_path" >&2
+            fi
+            ;;
+        /data/music*)
+            if [[ -n "$MUSICDIR" ]]; then
+                host_path="${container_path/\/data\/music/$MUSICDIR}"
+                log_message "INFO" "Path translation: $container_path → $host_path" >&2
+            fi
+            ;;
+        *)
+            log_message "DEBUG" "No translation needed for path: $container_path" >&2
+            ;;
+    esac
+    
+    # Validate the translated path exists
+    if [[ ! -d "$host_path" ]] && [[ ! -f "$host_path" ]]; then
+        log_message "WARNING" "Translated path does not exist: $host_path" >&2
+        log_message "DEBUG" "Available environment variables: TVDIR=$TVDIR, MOVIEDIR=$MOVIEDIR, MUSICDIR=$MUSICDIR" >&2
+    else
+        log_message "DEBUG" "Path validation passed: $host_path exists" >&2
+    fi
+    
+    echo "$host_path"
 }
 
 # Validate required components
@@ -75,7 +152,16 @@ detect_media_info() {
         # Handle different Sonarr event types
         case "$event_type" in
             "Download")
-                media_path="${Sonarr_Series_Path:-${sonarr_series_path:-}}"
+                # For TV shows, process the specific episode file if available, otherwise the series directory
+                local episode_file="${Sonarr_EpisodeFile_Path:-${sonarr_episodefile_path:-}}"
+                if [[ -n "$episode_file" ]]; then
+                    media_path="$episode_file"
+                    log_message "INFO" "Processing specific episode file: $episode_file" >&2
+                else
+                    media_path="${Sonarr_Series_Path:-${sonarr_series_path:-}}"
+                    log_message "INFO" "Processing series directory: $media_path" >&2
+                fi
+                
                 log_message "INFO" "Sonarr Download event for series: $title" >&2
                 if [[ -n "${Sonarr_EpisodeFile_Path:-${sonarr_episodefile_path:-}}" ]]; then
                     log_message "DEBUG" "Episode file: ${Sonarr_EpisodeFile_Path:-${sonarr_episodefile_path:-}}" >&2
@@ -172,20 +258,8 @@ detect_media_info() {
         result_output="error|error|Error|Error"
     fi
     
-    # Validate media path exists (only for real processing, not for test/skip/error)
-    # Parse the media_type from result_output to get the correct value
-    local parsed_media_type=$(echo "$result_output" | cut -d'|' -f1)
-    local parsed_media_path=$(echo "$result_output" | cut -d'|' -f2)
-    
-    if [[ "$parsed_media_type" != "test" && "$parsed_media_type" != "skip" && "$parsed_media_type" != "error" ]]; then
-        if [[ -z "$parsed_media_path" ]]; then
-            log_message "ERROR" "Media path is empty for $parsed_media_type event: $event_type" >&2
-            result_output="error|error|Empty Path|$event_type"
-        elif [[ ! -d "$parsed_media_path" ]] && [[ ! -f "$parsed_media_path" ]]; then
-            log_message "ERROR" "Media path does not exist: $parsed_media_path" >&2
-            result_output="error|error|Invalid Path: $parsed_media_path|$event_type"
-        fi
-    fi
+    # Note: Path validation is now done in execute_conversion() after path translation
+    # This allows container paths like /tv/... to be translated to host paths before validation
     
     echo "$result_output"
 }
@@ -198,8 +272,30 @@ execute_conversion() {
     local event_type="$4"
     
     log_message "INFO" "Starting media conversion for $media_type: $title"
-    log_message "INFO" "Processing path: $media_path"
+    log_message "INFO" "Processing path (original): $media_path"
     log_message "DEBUG" "Event type: $event_type"
+    
+    # Check for empty path first
+    if [[ -z "$media_path" ]]; then
+        log_message "ERROR" "Media path is empty for $media_type event: $event_type"
+        return 1
+    fi
+    
+    # Translate container path to host path
+    local host_path
+    host_path=$(translate_container_path "$media_path")
+    
+    if [[ "$host_path" != "$media_path" ]]; then
+        log_message "INFO" "Using translated path: $host_path"
+    fi
+    
+    # Final validation of the path before processing
+    if [[ ! -d "$host_path" ]] && [[ ! -f "$host_path" ]]; then
+        log_message "ERROR" "Final path validation failed: $host_path does not exist"
+        log_message "ERROR" "Original path: $media_path"
+        log_message "ERROR" "Translated path: $host_path"
+        return 1
+    fi
     
     # Build media_update.py command based on media type
     local cmd_args=()
@@ -207,37 +303,37 @@ execute_conversion() {
     case "$media_type" in
         "tv")
             # TV shows - focus on video conversion with subtitle preservation
-            if [[ -d "$media_path" ]]; then
-                cmd_args+=(--dir "$media_path")
+            if [[ -d "$host_path" ]]; then
+                cmd_args+=(--dir "$host_path")
             else
-                cmd_args+=(--file "$media_path")
+                cmd_args+=(--file "$host_path")
             fi
             cmd_args+=(--type video)
             ;;
         "movie")
             # Movies - comprehensive processing with audio and video
-            if [[ -d "$media_path" ]]; then
-                cmd_args+=(--dir "$media_path")
+            if [[ -d "$host_path" ]]; then
+                cmd_args+=(--dir "$host_path")
             else
-                cmd_args+=(--file "$media_path")
+                cmd_args+=(--file "$host_path")
             fi
             cmd_args+=(--type both)
             ;;
         "audio")
             # Music - audio-only conversion
-            if [[ -d "$media_path" ]]; then
-                cmd_args+=(--dir "$media_path")
+            if [[ -d "$host_path" ]]; then
+                cmd_args+=(--dir "$host_path")
             else
-                cmd_args+=(--file "$media_path")
+                cmd_args+=(--file "$host_path")
             fi
             cmd_args+=(--type audio)
             ;;
         "both")
             # Legacy mode - comprehensive processing
-            if [[ -d "$media_path" ]]; then
-                cmd_args+=(--dir "$media_path")
+            if [[ -d "$host_path" ]]; then
+                cmd_args+=(--dir "$host_path")
             else
-                cmd_args+=(--file "$media_path")
+                cmd_args+=(--file "$host_path")
             fi
             cmd_args+=(--type both)
             ;;
@@ -250,7 +346,8 @@ execute_conversion() {
     # Log conversion parameters
     log_message "INFO" "Conversion parameters:"
     log_message "INFO" "  Media type: $media_type"
-    log_message "INFO" "  Path: $media_path"
+    log_message "INFO" "  Original path: $media_path"
+    log_message "INFO" "  Host path: $host_path"
     log_message "INFO" "  Arguments: ${cmd_args[*]}"
     
     # Execute conversion
