@@ -147,6 +147,8 @@ import logging
 from datetime import datetime
 import subprocess
 import argparse
+import urllib.request
+import urllib.parse
 
 # Setup logging
 now = datetime.now()
@@ -211,6 +213,63 @@ def get_media_files(root_dir, media_type):
         return get_audio_files(root_dir)
     else:  # both
         return get_video_files(root_dir) + get_audio_files(root_dir)
+
+def notify_plex_library_update(media_path):
+    """
+    Notify Plex Media Server to scan for new/updated files.
+    
+    This function triggers a partial library scan for the specific directory
+    containing the processed media file, allowing Plex to discover the newly
+    transcoded content without a full library refresh.
+    
+    Parameters:
+        media_path (str): Path to the media file or directory that was processed
+        
+    Returns:
+        bool: True if notification was successful, False otherwise
+    """
+    try:
+        # Load Plex configuration from environment or config file
+        plex_url = os.environ.get('PLEX_URL', 'http://192.168.86.2:32400')
+        plex_token = os.environ.get('PLEX_TOKEN', '')
+        
+        if not plex_token:
+            logging.warning("PLEX_TOKEN not found in environment - Plex notification skipped")
+            return False
+        
+        # Determine the library path for scanning
+        # Get the parent directory of the file for partial scan
+        if os.path.isfile(media_path):
+            scan_path = os.path.dirname(media_path)
+        else:
+            scan_path = media_path
+            
+        # Construct Plex API URL for partial library scan
+        scan_url = f"{plex_url}/library/sections/all/refresh"
+        params = {
+            'X-Plex-Token': plex_token,
+            'path': scan_path
+        }
+        
+        # Construct full URL with parameters
+        query_string = urllib.parse.urlencode(params)
+        full_url = f"{scan_url}?{query_string}"
+        
+        # Make HTTP request to Plex API
+        logging.info(f"Notifying Plex to scan: {scan_path}")
+        req = urllib.request.Request(full_url, method='GET')
+        
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status == 200:
+                logging.info("Plex library scan notification sent successfully")
+                return True
+            else:
+                logging.warning(f"Plex notification returned status: {response.status}")
+                return False
+                
+    except Exception as e:
+        logging.warning(f"Failed to notify Plex: {e}")
+        return False
 
 def extract_pgs_subtitles(input_file, probe):
     """
@@ -560,6 +619,9 @@ def transcode_file(input_file):
             
             logging.info(f"Success: {final_output_file}")
             print(f"Success: {final_output_file}")
+            
+            # Notify Plex Media Server about the new/updated file
+            notify_plex_library_update(final_output_file)
             
             # Only remove source file if it's different from final output file
             if input_file != final_output_file:
