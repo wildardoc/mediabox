@@ -104,3 +104,9 @@ $RECYCLE.BIN/
 .env
 scripts/.venv/
 scripts/mediabox_config.json
+
+# Backup and test files
+archive/backup/
+*.backup*
+test-*.sh
+test-*.py

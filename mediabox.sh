@@ -70,6 +70,66 @@ safe_docker_operation() {
     return 0
 }
 
+# Plex Integration Functions
+wait_for_plex_service() {
+    local max_attempts=20  # 3+ minutes max wait
+    local attempt=1
+    
+    printf "⏳ Waiting for Plex service to be ready...\\n"
+    
+    for attempt in $(seq 1 $max_attempts); do
+        # First check if container is running
+        if ! docker-compose ps plex | grep -q "Up"; then
+            printf "⚠️  Plex container not running (attempt $attempt/$max_attempts)\\n"
+            sleep 10
+            continue
+        fi
+        
+        # Then test if service responds
+        if curl -s --connect-timeout 3 http://localhost:32400/identity >/dev/null 2>&1; then
+            printf "✅ Plex service is ready and responding\\n"
+            return 0
+        fi
+        
+        printf "⏳ Plex starting up... ($attempt/$max_attempts)\\n"
+        sleep 10
+    done
+    
+    printf "❌ Timeout waiting for Plex service to be ready\\n"
+    return 1
+}
+
+setup_plex_token() {
+    local scripts_dir="$PWD/scripts"
+    local venv_dir="$scripts_dir/.venv"
+    local credentials_file="$HOME/.mediabox/credentials.env"
+    
+    printf "🔐 Retrieving Plex authentication token...\\n"
+    
+    # Ensure virtual environment is activated and has dependencies
+    if [ ! -d "$venv_dir" ]; then
+        printf "❌ Virtual environment not found at $venv_dir\\n"
+        return 1
+    fi
+    
+    # Check if credentials file exists
+    if [ ! -f "$credentials_file" ]; then
+        printf "❌ Credentials file not found at $credentials_file\\n"
+        return 1
+    fi
+    
+    # Use the get-plex-token.py script with credentials file
+    cd "$scripts_dir" || return 1
+    
+    if python3 get-plex-token.py --url "http://localhost:32400" --auto-credential-file "$credentials_file" 2>/dev/null; then
+        printf "✅ Plex token retrieved and configured successfully!\\n"
+        return 0
+    else
+        printf "❌ Failed to retrieve Plex token automatically\\n"
+        return 1
+    fi
+}
+
 # Check that script was run not as root or with sudo
 if [ "$EUID" -eq 0 ]
   then echo "Please do not run this script as root or using sudo"
@@ -183,6 +243,24 @@ read -r -p "What is your PIA Username?: " piauname
 read -r -s -p "What is your PIA Password? (Will not be echoed): " piapass
 printf "\\n\\n"
 fi
+
+# Get MyPlex Account Info for Plex Integration
+printf "\\n🎬 Configure Plex Integration\\n"
+printf "==================================\\n"
+printf "To enable automatic library updates after media processing,\\n"
+printf "enter your Plex/MyPlex account details (optional - skip with Enter):\\n\\n"
+
+read -r -p "MyPlex Username (email): " plex_username
+if [ -n "$plex_username" ]; then
+    read -r -s -p "MyPlex Password (Will not be echoed): " plex_password
+    printf "\\n"
+    plex_enabled="true"
+    printf "✅ Plex credentials collected - will configure after containers start\\n"
+else
+    plex_enabled="false"
+    printf "⏭️  Skipping Plex integration - can be configured later\\n"
+fi
+printf "\\n"
 
 # Get info needed for PLEX Official image
 if [ -z "$pmstag" ] || [ "$pmsanswer" == "y" ]; then
@@ -515,6 +593,13 @@ export CPDAEMONUN="$daemonun"
 export CPDAEMONPASS="$daemonpass"
 export NZBGETUN="$daemonun"
 export NZBGETPASS="$daemonpass"
+
+# Add Plex credentials if provided
+if [ "$plex_enabled" == "true" ]; then
+    export PLEX_USERNAME="$plex_username"
+    export PLEX_PASSWORD="$plex_password"
+fi
+
 "$PWD/scripts/setup-secure-env.sh" --auto
 fi
 
@@ -575,9 +660,37 @@ fi
 # Create Port Mapping file
 for i in $(docker ps --format {{.Names}} | sort); do printf "\n === $i Ports ===\n" && docker port "$i"; done > homer/ports.txt
 
+# Setup Plex Integration (if enabled)
+if [ "$plex_enabled" == "true" ]; then
+    printf "\\n🎬 Setting up Plex integration...\\n"
+    
+    if wait_for_plex_service && setup_plex_token; then
+        printf "✅ Plex integration configured successfully!\\n"
+        printf "   - Automatic library updates enabled after media processing\\n"
+        printf "   - Token stored securely in credentials file\\n"
+    else
+        printf "❌ Automatic Plex setup failed\\n"
+        printf "\\n📋 To configure Plex manually later, run:\\n"
+        printf "   cd %s/scripts\\n" "$PWD"
+        printf "   python3 get-plex-token.py --interactive\\n"
+        printf "\\n📖 See PLEX_TOKEN_SETUP_GUIDE.md for detailed instructions\\n"
+    fi
+    printf "\\n"
+fi
+
 # Completion Message
 printf "Setup Complete - Open a browser and go to: \\n\\n"
 printf "http://%s \\nOR http://%s If you have appropriate DNS configured.\\n\\n" "$locip" "$thishost"
+
+if [ "$plex_enabled" == "true" ]; then
+    printf "🎬 Plex Integration Status:\\n"
+    if grep -q "PLEX_TOKEN=" .env 2>/dev/null; then
+        printf "   ✅ Configured - Library updates will happen automatically after media processing\\n"
+    else
+        printf "   ⚠️  Manual setup needed - Run: cd scripts && python3 get-plex-token.py --interactive\\n"
+    fi
+    printf "\\n"
+fi
 
 INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPTS_DIR="$INSTALL_DIR/scripts"
