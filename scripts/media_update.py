@@ -217,7 +217,10 @@ def get_media_files(root_dir, media_type):
     else:  # both
         return get_video_files(root_dir) + get_audio_files(root_dir)
 
-def notify_plex_library_update(file_path):
+# Global list to track processed files for batch notifications
+processed_files = []
+
+def notify_plex_library_update(file_path, retry_count=2):
     """
     Notify Plex Media Server to scan for new or updated files using PlexAPI.
     
@@ -227,102 +230,244 @@ def notify_plex_library_update(file_path):
     
     Args:
         file_path (str): Path to the processed media file
+        retry_count (int): Number of retry attempts if Plex server is unavailable
         
     Returns:
         bool: True if notification was successful, False otherwise
     """
-    try:
-        # Load configuration from environment
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        env_file = os.path.join(script_dir, '..', '.env')
-        
-        plex_url = None
-        plex_token = None
-        
-        if os.path.exists(env_file):
-            with open(env_file, 'r') as f:
-                for line in f:
-                    if line.startswith('PLEX_URL='):
-                        plex_url = line.split('=', 1)[1].strip()
-                    elif line.startswith('PLEX_TOKEN='):
-                        plex_token = line.split('=', 1)[1].strip()
-        
-        if not plex_url or not plex_token:
-            logging.warning("Plex URL or token not configured in .env file")
-            return False
-        
-        # Try to use PlexAPI for better integration
-        try:
-            from plexapi.server import PlexServer
-            
-            logging.info(f"Connecting to Plex server: {plex_url}")
-            plex = PlexServer(plex_url, plex_token)
-            
-            # Determine which library section to update based on file path
-            sections_to_update = []
-            file_path_lower = file_path.lower()
-            
-            # Get all library sections
-            for section in plex.library.sections():
-                section_type = section.type.lower()
-                section_locations = [loc.lower() for loc in section.locations]
-                
-                # Check if file path matches any section location
-                for location in section_locations:
-                    if file_path_lower.startswith(location.lower()):
-                        sections_to_update.append(section)
-                        logging.info(f"File matches {section_type} library: {section.title}")
-                        break
-                
-                # Fallback: match by content type
-                if not sections_to_update:
-                    if section_type == 'movie' and ('movie' in file_path_lower or '/movies/' in file_path_lower):
-                        sections_to_update.append(section)
-                    elif section_type == 'show' and ('tv' in file_path_lower or '/tv/' in file_path_lower):
-                        sections_to_update.append(section)
-                    elif section_type == 'artist' and ('music' in file_path_lower or '/music/' in file_path_lower):
-                        sections_to_update.append(section)
-            
-            if not sections_to_update:
-                logging.warning(f"No matching Plex library section found for: {file_path}")
-                return False
-            
-            # Update each matching section
-            for section in sections_to_update:
-                logging.info(f"Triggering scan for library section: {section.title}")
-                section.update()
-                
-            logging.info(f"Successfully notified Plex about updated file: {file_path}")
-            return True
-            
-        except ImportError:
-            # Fallback to direct REST API if PlexAPI is not available
-            logging.info("PlexAPI not available, falling back to REST API")
-            
-            # Get library sections via REST API
-            response = requests.get(f"{plex_url}/library/sections", 
-                                  params={'X-Plex-Token': plex_token}, 
-                                  timeout=10)
-            
-            if response.status_code != 200:
-                logging.error(f"Failed to get Plex library sections: {response.status_code}")
-                return False
-            
-            # Trigger a general library scan
-            scan_response = requests.get(f"{plex_url}/library/sections/all/refresh", 
-                                       params={'X-Plex-Token': plex_token}, 
-                                       timeout=10)
-            
-            if scan_response.status_code == 200:
-                logging.info(f"Successfully triggered Plex library scan via REST API")
-                return True
-            else:
-                logging.error(f"Failed to trigger Plex scan: {scan_response.status_code}")
-                return False
-        
-    except Exception as e:
-        logging.error(f"Error notifying Plex: {e}")
+    # Load configuration from environment
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    env_file = os.path.join(script_dir, '..', '.env')
+    
+    plex_url = None
+    plex_token = None
+    enable_notifications = True  # Default to enabled
+    
+    if os.path.exists(env_file):
+        with open(env_file, 'r') as f:
+            for line in f:
+                if line.startswith('PLEX_URL='):
+                    plex_url = line.split('=', 1)[1].strip()
+                elif line.startswith('PLEX_TOKEN='):
+                    plex_token = line.split('=', 1)[1].strip()
+                elif line.startswith('ENABLE_PLEX_NOTIFICATIONS='):
+                    enable_value = line.split('=', 1)[1].strip().lower()
+                    enable_notifications = enable_value in ('true', 'yes', '1', 'on')
+    
+    if not enable_notifications:
+        logging.info("Plex notifications disabled via ENABLE_PLEX_NOTIFICATIONS setting")
+        return True  # Return True to indicate "success" (notification not needed)
+    
+    if not plex_url or not plex_token:
+        logging.warning("Plex URL or token not configured in .env file")
         return False
+    
+    for attempt in range(retry_count + 1):
+        try:
+            # Load configuration from environment
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            env_file = os.path.join(script_dir, '..', '.env')
+            
+            plex_url = None
+            plex_token = None
+            
+            if os.path.exists(env_file):
+                with open(env_file, 'r') as f:
+                    for line in f:
+                        if line.startswith('PLEX_URL='):
+                            plex_url = line.split('=', 1)[1].strip()
+                        elif line.startswith('PLEX_TOKEN='):
+                            plex_token = line.split('=', 1)[1].strip()
+            
+            if not plex_url or not plex_token:
+                logging.warning("Plex URL or token not configured in .env file")
+                return False
+            
+            # Try to use PlexAPI for better integration
+            try:
+                from plexapi.server import PlexServer
+                from plexapi.exceptions import PlexServerError, Unauthorized
+                
+                logging.info(f"Connecting to Plex server: {plex_url} (attempt {attempt + 1}/{retry_count + 1})")
+                plex = PlexServer(plex_url, plex_token, timeout=15)
+                
+                # Determine which library section to update based on file path
+                sections_to_update = []
+                file_path_lower = file_path.lower()
+                
+                # Get all library sections
+                for section in plex.library.sections():
+                    section_type = section.type.lower()
+                    section_locations = [loc.lower() for loc in section.locations]
+                    
+                    # Check if file path matches any section location
+                    for location in section_locations:
+                        if file_path_lower.startswith(location.lower()):
+                            sections_to_update.append(section)
+                            logging.info(f"File matches {section_type} library: {section.title}")
+                            break
+                    
+                    # Fallback: match by content type
+                    if not sections_to_update:
+                        if section_type == 'movie' and ('movie' in file_path_lower or '/movies/' in file_path_lower):
+                            sections_to_update.append(section)
+                        elif section_type == 'show' and ('tv' in file_path_lower or '/tv/' in file_path_lower):
+                            sections_to_update.append(section)
+                        elif section_type == 'artist' and ('music' in file_path_lower or '/music/' in file_path_lower):
+                            sections_to_update.append(section)
+                
+                if not sections_to_update:
+                    logging.warning(f"No matching Plex library section found for: {file_path}")
+                    return False
+                
+                # Update each matching section
+                for section in sections_to_update:
+                    logging.info(f"Triggering scan for library section: {section.title}")
+                    section.update()
+                    
+                logging.info(f"Successfully notified Plex about updated file: {file_path}")
+                return True
+                
+            except (PlexServerError, Unauthorized) as e:
+                logging.error(f"Plex server error (attempt {attempt + 1}): {e}")
+                if attempt < retry_count:
+                    logging.info(f"Retrying in 5 seconds...")
+                    time.sleep(5)
+                    continue
+                else:
+                    logging.error(f"Failed to connect to Plex after {retry_count + 1} attempts")
+                    return False
+                
+            except ImportError:
+                # Fallback to direct REST API if PlexAPI is not available
+                logging.info("PlexAPI not available, falling back to REST API")
+                
+                # Get library sections via REST API
+                response = requests.get(f"{plex_url}/library/sections", 
+                                      params={'X-Plex-Token': plex_token}, 
+                                      timeout=15)
+                
+                if response.status_code != 200:
+                    if response.status_code in [401, 403]:
+                        logging.error(f"Plex authentication failed: {response.status_code}")
+                        return False
+                    elif response.status_code in [500, 502, 503, 504]:
+                        if attempt < retry_count:
+                            logging.warning(f"Plex server error {response.status_code}, retrying in 5 seconds...")
+                            time.sleep(5)
+                            continue
+                        else:
+                            logging.error(f"Plex server unavailable after {retry_count + 1} attempts: {response.status_code}")
+                            return False
+                    else:
+                        logging.error(f"Failed to get Plex library sections: {response.status_code}")
+                        return False
+                
+                # Trigger a general library scan
+                scan_response = requests.get(f"{plex_url}/library/sections/all/refresh", 
+                                           params={'X-Plex-Token': plex_token}, 
+                                           timeout=15)
+                
+                if scan_response.status_code == 200:
+                    logging.info(f"Successfully triggered Plex library scan via REST API")
+                    return True
+                elif scan_response.status_code in [500, 502, 503, 504] and attempt < retry_count:
+                    logging.warning(f"Plex scan failed {scan_response.status_code}, retrying in 5 seconds...")
+                    time.sleep(5)
+                    continue
+                else:
+                    logging.error(f"Failed to trigger Plex scan: {scan_response.status_code}")
+                    return False
+            
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Network error connecting to Plex (attempt {attempt + 1}): {e}")
+            if attempt < retry_count:
+                logging.info(f"Retrying in 5 seconds...")
+                time.sleep(5)
+                continue
+            else:
+                logging.error(f"Failed to connect to Plex after {retry_count + 1} attempts due to network issues")
+                return False
+                
+        except Exception as e:
+            logging.error(f"Unexpected error notifying Plex (attempt {attempt + 1}): {e}")
+            if attempt < retry_count:
+                logging.info(f"Retrying in 5 seconds...")
+                time.sleep(5)
+                continue
+            else:
+                logging.error(f"Failed to notify Plex after {retry_count + 1} attempts")
+                return False
+    
+    return False
+
+def batch_notify_plex():
+    """
+    Perform batch Plex notifications for all processed files.
+    This reduces the number of individual scan requests to Plex.
+    
+    Returns:
+        bool: True if any notifications were successful, False otherwise
+    """
+    global processed_files
+    
+    if not processed_files:
+        return True
+    
+    # Check if notifications are enabled
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    env_file = os.path.join(script_dir, '..', '.env')
+    enable_notifications = True  # Default to enabled
+    
+    if os.path.exists(env_file):
+        with open(env_file, 'r') as f:
+            for line in f:
+                if line.startswith('ENABLE_PLEX_NOTIFICATIONS='):
+                    enable_value = line.split('=', 1)[1].strip().lower()
+                    enable_notifications = enable_value in ('true', 'yes', '1', 'on')
+                    break
+    
+    if not enable_notifications:
+        logging.info(f"Plex notifications disabled for {len(processed_files)} processed files")
+        processed_files.clear()
+        return True
+    
+    logging.info(f"Performing batch Plex notification for {len(processed_files)} files")
+    
+    # Group files by likely library section to minimize scans
+    library_sections = {
+        'tv': [],
+        'movies': [], 
+        'music': []
+    }
+    
+    for file_path in processed_files:
+        file_path_lower = file_path.lower()
+        if 'tv' in file_path_lower or '/tv/' in file_path_lower:
+            library_sections['tv'].append(file_path)
+        elif 'movie' in file_path_lower or '/movies/' in file_path_lower:
+            library_sections['movies'].append(file_path)
+        elif 'music' in file_path_lower or '/music/' in file_path_lower:
+            library_sections['music'].append(file_path)
+        else:
+            # Default to TV if we can't determine
+            library_sections['tv'].append(file_path)
+    
+    success = False
+    for section_type, files in library_sections.items():
+        if files:
+            # Pick one representative file to trigger the section scan
+            representative_file = files[0]
+            if notify_plex_library_update(representative_file, retry_count=1):
+                logging.info(f"Successfully triggered {section_type} library scan for {len(files)} files")
+                success = True
+            else:
+                logging.warning(f"Failed to trigger {section_type} library scan for {len(files)} files")
+    
+    # Clear the processed files list
+    processed_files.clear()
+    
+    return success
 
 def extract_pgs_subtitles(input_file, probe):
     """
@@ -673,8 +818,9 @@ def transcode_file(input_file):
             logging.info(f"Success: {final_output_file}")
             print(f"Success: {final_output_file}")
             
-            # Notify Plex Media Server about the new/updated file
-            notify_plex_library_update(final_output_file)
+            # Add to batch notification list instead of immediate notification
+            global processed_files
+            processed_files.append(final_output_file)
             
             # Only remove source file if it's different from final output file
             if input_file != final_output_file:
@@ -706,6 +852,12 @@ def main():
             print("Invalid file.")
             sys.exit(1)
         transcode_file(args.file)
+        
+        # Perform batch Plex notification for single file
+        if processed_files:
+            print("Notifying Plex about processed file...")
+            batch_notify_plex()
+            
         logging.info("Transcoding complete.")
         print("Transcoding complete.")
         return
@@ -738,6 +890,12 @@ def main():
                 print("Invalid file.")
                 sys.exit(1)
             transcode_file(file_path)
+            
+            # Perform batch Plex notification for single file  
+            if processed_files:
+                print("Notifying Plex about processed file...")
+                batch_notify_plex()
+                
             logging.info("Transcoding complete.")
             print("Transcoding complete.")
             return
@@ -762,6 +920,12 @@ def main():
         except Exception as e:
             logging.error(f"Error processing {f}: {e}")
             print(f"Error processing {f}: {e}")
+    
+    # Perform batch Plex notifications after all files are processed
+    if processed_files:
+        print(f"Notifying Plex about {len(processed_files)} processed files...")
+        batch_notify_plex()
+    
     logging.info("Transcoding complete.")
     print("Transcoding complete.")
 

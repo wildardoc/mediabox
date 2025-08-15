@@ -210,6 +210,9 @@ if [[ "$AUTO_MODE" == false ]]; then
                 echo "PLEX_PASSWORD=$plex_password"
             fi
             
+            # Plex notification settings (enabled by default)
+            echo "ENABLE_PLEX_NOTIFICATIONS=true"
+            
             echo ""
         } >> .env
         
