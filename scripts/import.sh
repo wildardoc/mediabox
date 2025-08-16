@@ -215,9 +215,9 @@ detect_media_info() {
         
         # Handle different Lidarr event types
         case "$event_type" in
-            "Download")
+            "Download"|"AlbumDownload")
                 media_path="${Lidarr_Artist_Path:-${lidarr_artist_path:-}}"
-                log_message "INFO" "Lidarr Download event for album: $title" >&2
+                log_message "INFO" "Lidarr $event_type event for album: $title" >&2
                 if [[ -n "${Lidarr_TrackFile_Path:-${lidarr_trackfile_path:-}}" ]]; then
                     log_message "DEBUG" "Track file: ${Lidarr_TrackFile_Path:-${lidarr_trackfile_path:-}}" >&2
                 fi
