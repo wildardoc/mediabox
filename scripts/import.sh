@@ -16,10 +16,11 @@ MAX_LOG_SIZE=10485760  # 10MB in bytes
 ENV_FILE="$SCRIPT_DIR/../.env"
 if [[ -f "$ENV_FILE" ]]; then
     # Source only the path variables we need for container-to-host path translation
-    TVDIR=$(grep "^TVDIR=" "$ENV_FILE" | cut -d= -f2- || echo "")
-    MOVIEDIR=$(grep "^MOVIEDIR=" "$ENV_FILE" | cut -d= -f2- || echo "")
-    MUSICDIR=$(grep "^MUSICDIR=" "$ENV_FILE" | cut -d= -f2- || echo "")
-    MISCDIR=$(grep "^MISCDIR=" "$ENV_FILE" | cut -d= -f2- || echo "")
+    # Use safer parsing to avoid issues with special characters in passwords
+    TVDIR=$(grep "^TVDIR=" "$ENV_FILE" | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || echo "")
+    MOVIEDIR=$(grep "^MOVIEDIR=" "$ENV_FILE" | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || echo "")
+    MUSICDIR=$(grep "^MUSICDIR=" "$ENV_FILE" | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || echo "")
+    MISCDIR=$(grep "^MISCDIR=" "$ENV_FILE" | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || echo "")
 fi
 
 # Enhanced logging function with timestamp and level
@@ -56,7 +57,7 @@ translate_container_path() {
     case "$container_path" in
         /tv/*)
             if [[ -n "$TVDIR" ]]; then
-                host_path="${container_path/\/tv/$TVDIR}"
+                host_path="${TVDIR}${container_path#/tv}"
                 log_message "INFO" "Path translation: $container_path → $host_path" >&2
             else
                 log_message "WARNING" "TVDIR not found in .env, cannot translate /tv/ path" >&2
@@ -64,7 +65,7 @@ translate_container_path() {
             ;;
         /movies/*)
             if [[ -n "$MOVIEDIR" ]]; then
-                host_path="${container_path/\/movies/$MOVIEDIR}"
+                host_path="${MOVIEDIR}${container_path#/movies}"
                 log_message "INFO" "Path translation: $container_path → $host_path" >&2
             else
                 log_message "WARNING" "MOVIEDIR not found in .env, cannot translate /movies/ path" >&2
@@ -72,7 +73,7 @@ translate_container_path() {
             ;;
         /music/*)
             if [[ -n "$MUSICDIR" ]]; then
-                host_path="${container_path/\/music/$MUSICDIR}"
+                host_path="${MUSICDIR}${container_path#/music}"
                 log_message "INFO" "Path translation: $container_path → $host_path" >&2
             else
                 log_message "WARNING" "MUSICDIR not found in .env, cannot translate /music/ path" >&2
@@ -80,19 +81,19 @@ translate_container_path() {
             ;;
         /data/movies*)
             if [[ -n "$MOVIEDIR" ]]; then
-                host_path="${container_path/\/data\/movies/$MOVIEDIR}"
+                host_path="${MOVIEDIR}${container_path#/data/movies}"
                 log_message "INFO" "Path translation: $container_path → $host_path" >&2
             fi
             ;;
         /data/tv*)
             if [[ -n "$TVDIR" ]]; then
-                host_path="${container_path/\/data\/tv/$TVDIR}"
+                host_path="${TVDIR}${container_path#/data/tv}"
                 log_message "INFO" "Path translation: $container_path → $host_path" >&2
             fi
             ;;
         /data/music*)
             if [[ -n "$MUSICDIR" ]]; then
-                host_path="${container_path/\/data\/music/$MUSICDIR}"
+                host_path="${MUSICDIR}${container_path#/data/music}"
                 log_message "INFO" "Path translation: $container_path → $host_path" >&2
             fi
             ;;
