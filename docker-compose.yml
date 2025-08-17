@@ -103,6 +103,10 @@ services:
         - TZ=${TZ}
         - DOCKER_MODS=linuxserver/mods:universal-package-install
         - INSTALL_PACKAGES=python3|py3-pip|ffmpeg
+        - TVDIR=${TVDIR}
+        - MOVIEDIR=${MOVIEDIR}
+        - MUSICDIR=${MUSICDIR}
+        - MISCDIR=${MISCDIR}
     volumes:
         - './lidarr:/config'
         - '${DLDIR}/completed:/data/completed'
@@ -290,6 +294,10 @@ services:
         - TZ=${TZ}
         - DOCKER_MODS=linuxserver/mods:universal-package-install
         - INSTALL_PACKAGES=python3|py3-pip|ffmpeg
+        - TVDIR=${TVDIR}
+        - MOVIEDIR=${MOVIEDIR}
+        - MUSICDIR=${MUSICDIR}
+        - MISCDIR=${MISCDIR}
     volumes:
         - './radarr:/config'
         - '${DLDIR}/completed:/data/completed'
@@ -321,6 +329,10 @@ services:
         - TZ=${TZ}
         - DOCKER_MODS=linuxserver/mods:universal-package-install
         - INSTALL_PACKAGES=python3|py3-pip|ffmpeg
+        - TVDIR=${TVDIR}
+        - MOVIEDIR=${MOVIEDIR}
+        - MUSICDIR=${MUSICDIR}
+        - MISCDIR=${MISCDIR}
     volumes:
         - './sonarr:/config'
         - '${DLDIR}/completed:/data/completed'
