@@ -118,19 +118,26 @@ def is_media_match(lib_info, info_tuple):
     return width_or_channels_match and height_match and bitrate_match
 
 def parse_tv_filename(filename):
-    # Example: Show.Name.S01E02.Title.mkv
-    match = re.search(r'(?P<series>.+?)\.S(?P<season>\d{2})E(?P<episode>\d{2})', filename, re.IGNORECASE)
+    # Example: Show.Name.S01E02.Title.mkv -> extract without extension
+    # Remove extension first
+    base_name = os.path.splitext(filename)[0]
+    match = re.search(r'(?P<series>.+?)\.S(?P<season>\d{2})E(?P<episode>\d{2})', base_name, re.IGNORECASE)
     if match:
         return match.group('series').replace('.', ' ').strip(), int(match.group('season')), int(match.group('episode'))
     return None, None, None
 
 def find_library_tv_file(series, season, episode, library_tv_dir):
-    # Traverse: /tv/Series Name/Season XX/
+    # Enhanced partial matching - traverse: /tv/Series Name/Season XX/
     for series_dir in os.listdir(library_tv_dir):
-        if series_dir.lower().replace(' ', '') == series.lower().replace(' ', ''):
+        # Partial series name matching (handles variations like "The Show" vs "Show")
+        series_clean = series.lower().replace(' ', '').replace('the', '')
+        dir_clean = series_dir.lower().replace(' ', '').replace('the', '')
+        
+        if series_clean in dir_clean or dir_clean in series_clean:
             season_path = os.path.join(library_tv_dir, series_dir, f"Season {season:02d}")
             if os.path.isdir(season_path):
                 for fname in os.listdir(season_path):
+                    # Parse filename without extension for matching
                     s, se, ep = parse_tv_filename(fname)
                     if s and se == season and ep == episode:
                         return os.path.join(season_path, fname)
@@ -184,35 +191,64 @@ def should_delete_tv(file_path, library_tv_dir, dry_run=False):
         return False
 
 def parse_movie_filename(filename):
-    # Example: Movie.Name.2022.1080p.mkv
-    match = re.match(r'(?P<title>.+?)(?:\.\d{4})?\.', filename)
+    # Example: Movie.Name.2022.1080p.mkv -> extract without extension
+    base_name = os.path.splitext(filename)[0]
+    match = re.match(r'(?P<title>.+?)(?:\.\d{4})?\.', base_name)
     if match:
         return match.group('title').replace('.', ' ').strip()
-    return None
+    # Fallback: just use base name with dots replaced
+    return base_name.replace('.', ' ').strip()
 
 def find_library_movie_file(movie_title, library_movie_dir):
+    # Enhanced partial matching for movies
     for movie_dir in os.listdir(library_movie_dir):
-        if movie_dir.lower().replace(' ', '') == movie_title.lower().replace(' ', ''):
+        # Partial movie title matching (handles variations)
+        title_clean = movie_title.lower().replace(' ', '').replace('the', '')
+        dir_clean = movie_dir.lower().replace(' ', '').replace('the', '')
+        
+        if title_clean in dir_clean or dir_clean in title_clean:
             movie_path = os.path.join(library_movie_dir, movie_dir)
-            for fname in os.listdir(movie_path):
-                return os.path.join(movie_path, fname)
+            if os.path.isdir(movie_path):
+                # Find the main movie file (skip extras, subtitles, etc.)
+                for fname in os.listdir(movie_path):
+                    if fname.lower().endswith(MEDIA_EXTS) and not any(x in fname.lower() for x in ['trailer', 'extra', 'bonus', 'behind']):
+                        return os.path.join(movie_path, fname)
     return None
 
 def parse_music_filename(filename):
     # Example: Artist-Album-Track.mp3 or Artist - Album - Track.mp3
-    match = re.match(r'(?P<artist>.+?)[-_ ]+(?P<album>.+?)[-_ ]+(?P<track>.+?)\.', filename)
+    # Remove extension first
+    base_name = os.path.splitext(filename)[0]
+    match = re.match(r'(?P<artist>.+?)[-_ ]+(?P<album>.+?)[-_ ]+(?P<track>.+?)$', base_name)
     if match:
         return match.group('artist').strip(), match.group('album').strip(), match.group('track').strip()
     return None, None, None
 
 def find_library_music_file(artist, album, track, library_music_dir):
+    # Enhanced partial matching for music
     for artist_dir in os.listdir(library_music_dir):
-        if artist_dir.lower().replace(' ', '') == artist.lower().replace(' ', ''):
-            album_path = os.path.join(library_music_dir, artist_dir, album)
-            if os.path.isdir(album_path):
-                for fname in os.listdir(album_path):
-                    if track.lower().replace(' ', '') in fname.lower().replace(' ', ''):
-                        return os.path.join(album_path, fname)
+        # Partial artist name matching
+        artist_clean = artist.lower().replace(' ', '').replace('the', '')
+        dir_clean = artist_dir.lower().replace(' ', '').replace('the', '')
+        
+        if artist_clean in dir_clean or dir_clean in artist_clean:
+            # Look for album directory (partial matching)
+            artist_path = os.path.join(library_music_dir, artist_dir)
+            if os.path.isdir(artist_path):
+                for album_dir in os.listdir(artist_path):
+                    album_clean = album.lower().replace(' ', '')
+                    album_dir_clean = album_dir.lower().replace(' ', '')
+                    
+                    if album_clean in album_dir_clean or album_dir_clean in album_clean:
+                        album_path = os.path.join(artist_path, album_dir)
+                        if os.path.isdir(album_path):
+                            # Find track file (partial matching)
+                            track_clean = track.lower().replace(' ', '')
+                            for fname in os.listdir(album_path):
+                                if fname.lower().endswith(('.mp3', '.flac', '.aac', '.ogg', '.wav', '.m4a', '.alac', '.opus')):
+                                    fname_clean = os.path.splitext(fname)[0].lower().replace(' ', '')
+                                    if track_clean in fname_clean:
+                                        return os.path.join(album_path, fname)
     return None
 
 def should_delete_movie(file_path, library_movie_dir, dry_run=False):
@@ -255,6 +291,7 @@ def should_delete_music(file_path, library_music_dir, dry_run=False):
     filename = os.path.basename(file_path)
     artist, album, track = parse_music_filename(filename)
     if not artist:
+        # Not a music file, fallback to age check
         mtime = os.path.getmtime(file_path)
         age_days = (time.time() - mtime) / (24 * 3600)
         if age_days > DAYS_OLD:
@@ -264,6 +301,8 @@ def should_delete_music(file_path, library_music_dir, dry_run=False):
             return True
         return False
 
+    lib_file = find_library_music_file(artist, album, track, library_music_dir)
+    if lib_file:
         dl_info = get_media_info(file_path)
         lib_info = get_media_info(lib_file)
         if dl_info[2] is not None and lib_info[2] is not None:
@@ -285,9 +324,8 @@ def should_delete_music(file_path, library_music_dir, dry_run=False):
                     os.remove(file_path)
                 return True
             return False
-            print(f"{file_path} is higher bitrate than library copy. Manual intervention needed.")
-            return False
     else:
+        # No match in library, fallback to age check
         mtime = os.path.getmtime(file_path)
         age_days = (time.time() - mtime) / (24 * 3600)
         if age_days > DAYS_OLD:
