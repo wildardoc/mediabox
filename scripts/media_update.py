@@ -497,22 +497,15 @@ def notify_plex_library_update(file_path, retry_count=2):
                     file_path_lower = file_path.lower()
                     for section in plex.library.sections():
                         section_type = section.type.lower()
-                        if section_type == 'movie' and ('movie' in file_path_lower or '/movies/' in file_path_lower):
-=======
-                    section_type = section.type.lower()
-                    section_locations = [loc.lower() for loc in section.locations]
-                    
-                    # Check if file path matches any section location
-                    for location in section_locations:
-                        if plex_path_lower.startswith(location.lower()):
-                            sections_to_update.append(section)
-                            logging.info(f"File matches {section_type} library: {section.title} (location: {location})")
-                            break
-                    
-                    # Fallback: match by content type if exact location matching failed
-                    if not sections_to_update:
                         if section_type == 'movie' and ('/data/movies' in plex_path_lower or 'movie' in plex_path_lower):
                             sections_to_update.append(section)
+                            logging.info(f"File matches {section_type} library by content type: {section.title}")
+                        elif section_type == 'show' and ('/data/tv' in plex_path_lower or 'tv' in plex_path_lower):
+                            sections_to_update.append(section)
+                            logging.info(f"File matches {section_type} library by content type: {section.title}")
+                        elif section_type == 'artist' and ('/data/music' in plex_path_lower or 'music' in plex_path_lower):
+                            sections_to_update.append(section)
+                            logging.info(f"File matches {section_type} library by content type: {section.title}")
                             logging.info(f"File matches {section_type} library by content type: {section.title}")
                         elif section_type == 'show' and ('/data/tv' in plex_path_lower or 'tv' in plex_path_lower):
                             sections_to_update.append(section)
