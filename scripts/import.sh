@@ -14,14 +14,12 @@ MAX_LOG_SIZE=10485760  # 10MB in bytes
 
 # Load environment variables for path translation
 ENV_FILE="$SCRIPT_DIR/../.env"
-if [[ -f "$ENV_FILE" ]]; then
-    # Source only the path variables we need for container-to-host path translation
-    # Use safer parsing to avoid issues with special characters in passwords
-    TVDIR=$(grep "^TVDIR=" "$ENV_FILE" | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || echo "")
-    MOVIEDIR=$(grep "^MOVIEDIR=" "$ENV_FILE" | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || echo "")
-    MUSICDIR=$(grep "^MUSICDIR=" "$ENV_FILE" | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || echo "")
-    MISCDIR=$(grep "^MISCDIR=" "$ENV_FILE" | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || echo "")
-fi
+
+# Initialize path variables
+TVDIR=""
+MOVIEDIR=""
+MUSICDIR=""
+MISCDIR=""
 
 # Enhanced logging function with timestamp and level
 log_message() {
@@ -46,6 +44,65 @@ log_message() {
     fi
 }
 
+# Try to get from environment variables first (when running in containers)
+if [[ -n "${TVDIR:-}" ]]; then
+    TVDIR="$TVDIR"
+    log_message "DEBUG" "Using TVDIR from environment: $TVDIR" >&2
+fi
+if [[ -n "${MOVIEDIR:-}" ]]; then
+    MOVIEDIR="$MOVIEDIR"
+    log_message "DEBUG" "Using MOVIEDIR from environment: $MOVIEDIR" >&2
+fi
+if [[ -n "${MUSICDIR:-}" ]]; then
+    MUSICDIR="$MUSICDIR"
+    log_message "DEBUG" "Using MUSICDIR from environment: $MUSICDIR" >&2
+fi
+if [[ -n "${MISCDIR:-}" ]]; then
+    MISCDIR="$MISCDIR"
+    log_message "DEBUG" "Using MISCDIR from environment: $MISCDIR" >&2
+fi
+
+# If not found in environment, try to read from .env file (when running on host)
+if [[ -z "$TVDIR" || -z "$MOVIEDIR" || -z "$MUSICDIR" ]]; then
+    # Handle container vs host execution paths
+    if [[ ! -f "$ENV_FILE" && "$SCRIPT_DIR" == "/scripts" ]]; then
+        # Running inside container, look for .env in common container mount locations
+        if [[ -f "/config/.env" ]]; then
+            ENV_FILE="/config/.env"
+            log_message "DEBUG" "Using container .env file: $ENV_FILE" >&2
+        elif [[ -f "/mediabox/.env" ]]; then
+            ENV_FILE="/mediabox/.env"
+            log_message "DEBUG" "Using container .env file: $ENV_FILE" >&2
+        else
+            log_message "WARNING" "Running in container but cannot find .env file, using fallback paths" >&2
+            # Use fallback paths typical for mediabox setup
+            TVDIR="${TVDIR:-/Storage/media/tv}"
+            MOVIEDIR="${MOVIEDIR:-/Storage/media/movies}"
+            MUSICDIR="${MUSICDIR:-/Storage/media/music}"
+            MISCDIR="${MISCDIR:-/Storage/media/misc}"
+        fi
+    fi
+
+    if [[ -f "$ENV_FILE" ]]; then
+        # Source only the path variables we need for container-to-host path translation
+        # Use safer parsing to avoid issues with special characters in passwords
+        [[ -z "$TVDIR" ]] && TVDIR=$(grep "^TVDIR=" "$ENV_FILE" | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || echo "")
+        [[ -z "$MOVIEDIR" ]] && MOVIEDIR=$(grep "^MOVIEDIR=" "$ENV_FILE" | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || echo "")
+        [[ -z "$MUSICDIR" ]] && MUSICDIR=$(grep "^MUSICDIR=" "$ENV_FILE" | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || echo "")
+        [[ -z "$MISCDIR" ]] && MISCDIR=$(grep "^MISCDIR=" "$ENV_FILE" | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/' || echo "")
+        
+        log_message "DEBUG" "Environment loaded from: $ENV_FILE" >&2
+    fi
+fi
+
+log_message "DEBUG" "Final paths - TVDIR='$TVDIR', MOVIEDIR='$MOVIEDIR', MUSICDIR='$MUSICDIR'" >&2
+
+# Validate that we have the essential paths
+if [[ -z "$TVDIR" || -z "$MOVIEDIR" || -z "$MUSICDIR" ]]; then
+    log_message "ERROR" "Missing essential path variables. Check .env file or container environment." >&2
+    log_message "ERROR" "TVDIR='$TVDIR', MOVIEDIR='$MOVIEDIR', MUSICDIR='$MUSICDIR'" >&2
+fi
+
 # Translate container paths to host paths for media processing
 translate_container_path() {
     local container_path="$1"
@@ -53,11 +110,27 @@ translate_container_path() {
     
     log_message "DEBUG" "Container path received: $container_path" >&2
     
+    # Handle both file paths and directory paths
+    # If it's a file path, extract the directory for translation
+    local path_to_translate="$container_path"
+    local is_file=false
+    if [[ -f "$container_path" ]] || [[ "$container_path" == *.* ]]; then
+        path_to_translate=$(dirname "$container_path")
+        is_file=true
+        log_message "DEBUG" "Detected file path, translating directory: $path_to_translate" >&2
+    fi
+    
     # Translate container paths to host paths using .env variables
-    case "$container_path" in
+    case "$path_to_translate" in
         /tv/*)
             if [[ -n "$TVDIR" ]]; then
-                host_path="${TVDIR}${container_path#/tv}"
+                local translated_dir="${TVDIR}${path_to_translate#/tv}"
+                if [[ "$is_file" == "true" ]]; then
+                    local filename=$(basename "$container_path")
+                    host_path="${translated_dir}/${filename}"
+                else
+                    host_path="$translated_dir"
+                fi
                 log_message "INFO" "Path translation: $container_path → $host_path" >&2
             else
                 log_message "WARNING" "TVDIR not found in .env, cannot translate /tv/ path" >&2
@@ -65,7 +138,13 @@ translate_container_path() {
             ;;
         /movies/*)
             if [[ -n "$MOVIEDIR" ]]; then
-                host_path="${MOVIEDIR}${container_path#/movies}"
+                local translated_dir="${MOVIEDIR}${path_to_translate#/movies}"
+                if [[ "$is_file" == "true" ]]; then
+                    local filename=$(basename "$container_path")
+                    host_path="${translated_dir}/${filename}"
+                else
+                    host_path="$translated_dir"
+                fi
                 log_message "INFO" "Path translation: $container_path → $host_path" >&2
             else
                 log_message "WARNING" "MOVIEDIR not found in .env, cannot translate /movies/ path" >&2
@@ -73,7 +152,13 @@ translate_container_path() {
             ;;
         /music/*)
             if [[ -n "$MUSICDIR" ]]; then
-                host_path="${MUSICDIR}${container_path#/music}"
+                local translated_dir="${MUSICDIR}${path_to_translate#/music}"
+                if [[ "$is_file" == "true" ]]; then
+                    local filename=$(basename "$container_path")
+                    host_path="${translated_dir}/${filename}"
+                else
+                    host_path="$translated_dir"
+                fi
                 log_message "INFO" "Path translation: $container_path → $host_path" >&2
             else
                 log_message "WARNING" "MUSICDIR not found in .env, cannot translate /music/ path" >&2
@@ -81,19 +166,37 @@ translate_container_path() {
             ;;
         /data/movies*)
             if [[ -n "$MOVIEDIR" ]]; then
-                host_path="${MOVIEDIR}${container_path#/data/movies}"
+                local translated_dir="${MOVIEDIR}${path_to_translate#/data/movies}"
+                if [[ "$is_file" == "true" ]]; then
+                    local filename=$(basename "$container_path")
+                    host_path="${translated_dir}/${filename}"
+                else
+                    host_path="$translated_dir"
+                fi
                 log_message "INFO" "Path translation: $container_path → $host_path" >&2
             fi
             ;;
         /data/tv*)
             if [[ -n "$TVDIR" ]]; then
-                host_path="${TVDIR}${container_path#/data/tv}"
+                local translated_dir="${TVDIR}${path_to_translate#/data/tv}"
+                if [[ "$is_file" == "true" ]]; then
+                    local filename=$(basename "$container_path")
+                    host_path="${translated_dir}/${filename}"
+                else
+                    host_path="$translated_dir"
+                fi
                 log_message "INFO" "Path translation: $container_path → $host_path" >&2
             fi
             ;;
         /data/music*)
             if [[ -n "$MUSICDIR" ]]; then
-                host_path="${MUSICDIR}${container_path#/data/music}"
+                local translated_dir="${MUSICDIR}${path_to_translate#/data/music}"
+                if [[ "$is_file" == "true" ]]; then
+                    local filename=$(basename "$container_path")
+                    host_path="${translated_dir}/${filename}"
+                else
+                    host_path="$translated_dir"
+                fi
                 log_message "INFO" "Path translation: $container_path → $host_path" >&2
             fi
             ;;
@@ -106,6 +209,16 @@ translate_container_path() {
     if [[ ! -d "$host_path" ]] && [[ ! -f "$host_path" ]]; then
         log_message "WARNING" "Translated path does not exist: $host_path" >&2
         log_message "DEBUG" "Available environment variables: TVDIR=$TVDIR, MOVIEDIR=$MOVIEDIR, MUSICDIR=$MUSICDIR" >&2
+        
+        # If file doesn't exist, check if the directory exists (for newly created files)
+        if [[ "$is_file" == "true" ]]; then
+            local dir_part=$(dirname "$host_path")
+            if [[ -d "$dir_part" ]]; then
+                log_message "DEBUG" "Directory exists for file: $dir_part" >&2
+            else
+                log_message "WARNING" "Directory does not exist for file: $dir_part" >&2
+            fi
+        fi
     else
         log_message "DEBUG" "Path validation passed: $host_path exists" >&2
     fi
@@ -282,19 +395,16 @@ execute_conversion() {
         return 1
     fi
     
-    # Translate container path to host path
-    local host_path
-    host_path=$(translate_container_path "$media_path")
+    # For container execution, use the path as-is (no translation needed)
+    # The *arr applications provide container paths that match the mounted volumes
+    local processing_path="$media_path"
     
-    if [[ "$host_path" != "$media_path" ]]; then
-        log_message "INFO" "Using translated path: $host_path"
-    fi
+    log_message "INFO" "Using container path: $processing_path"
     
-    # Final validation of the path before processing
-    if [[ ! -d "$host_path" ]] && [[ ! -f "$host_path" ]]; then
-        log_message "ERROR" "Final path validation failed: $host_path does not exist"
-        log_message "ERROR" "Original path: $media_path"
-        log_message "ERROR" "Translated path: $host_path"
+    # Validate the path exists in the container filesystem
+    if [[ ! -d "$processing_path" ]] && [[ ! -f "$processing_path" ]]; then
+        log_message "ERROR" "Path validation failed: $processing_path does not exist"
+        log_message "ERROR" "Container may not have correct volume mounts configured"
         return 1
     fi
     
@@ -304,37 +414,37 @@ execute_conversion() {
     case "$media_type" in
         "tv")
             # TV shows - focus on video conversion with subtitle preservation
-            if [[ -d "$host_path" ]]; then
-                cmd_args+=(--dir "$host_path")
+            if [[ -d "$processing_path" ]]; then
+                cmd_args+=(--dir "$processing_path")
             else
-                cmd_args+=(--file "$host_path")
+                cmd_args+=(--file "$processing_path")
             fi
             cmd_args+=(--type video)
             ;;
         "movie")
             # Movies - comprehensive processing with audio and video
-            if [[ -d "$host_path" ]]; then
-                cmd_args+=(--dir "$host_path")
+            if [[ -d "$processing_path" ]]; then
+                cmd_args+=(--dir "$processing_path")
             else
-                cmd_args+=(--file "$host_path")
+                cmd_args+=(--file "$processing_path")
             fi
             cmd_args+=(--type both)
             ;;
         "audio")
             # Music - audio-only conversion
-            if [[ -d "$host_path" ]]; then
-                cmd_args+=(--dir "$host_path")
+            if [[ -d "$processing_path" ]]; then
+                cmd_args+=(--dir "$processing_path")
             else
-                cmd_args+=(--file "$host_path")
+                cmd_args+=(--file "$processing_path")
             fi
             cmd_args+=(--type audio)
             ;;
         "both")
             # Legacy mode - comprehensive processing
-            if [[ -d "$host_path" ]]; then
-                cmd_args+=(--dir "$host_path")
+            if [[ -d "$processing_path" ]]; then
+                cmd_args+=(--dir "$processing_path")
             else
-                cmd_args+=(--file "$host_path")
+                cmd_args+=(--file "$processing_path")
             fi
             cmd_args+=(--type both)
             ;;
@@ -347,8 +457,7 @@ execute_conversion() {
     # Log conversion parameters
     log_message "INFO" "Conversion parameters:"
     log_message "INFO" "  Media type: $media_type"
-    log_message "INFO" "  Original path: $media_path"
-    log_message "INFO" "  Host path: $host_path"
+    log_message "INFO" "  Container path: $processing_path"
     log_message "INFO" "  Arguments: ${cmd_args[*]}"
     
     # Execute conversion

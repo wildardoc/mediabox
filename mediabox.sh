@@ -452,9 +452,9 @@ echo ""
 
 # Create the directory structure
 if [ -z "$dldirectory" ]; then
-    create_directory "content/completed"
-    create_directory "content/incomplete"
-    dldirectory="$PWD/content"
+    create_directory "downloads/completed"
+    create_directory "downloads/incomplete"
+    dldirectory="$PWD/downloads"
 else
     create_directory "$dldirectory/completed"
     create_directory "$dldirectory/incomplete"
@@ -573,7 +573,102 @@ if ! docker-compose --profile full up -d --remove-orphans; then
     echo "💡 Try running: docker-compose --profile full logs"
     exit 1
 fi
+fi
 echo "✅ Docker containers started successfully"
+
+# Verify virtual environment is accessible in containers
+verify_container_venv_access() {
+    echo "🔍 Verifying containers can access virtual environment..."
+    
+    local containers=("sonarr" "radarr" "lidarr")
+    local all_good=true
+    
+    for container in "${containers[@]}"; do
+        echo "  Checking $container..."
+        
+        # Check if .venv directory is mounted
+        if docker exec "$container" test -d "/scripts/.venv" 2>/dev/null; then
+            echo "    ✅ Virtual environment directory mounted"
+        else
+            echo "    ❌ Virtual environment directory not mounted"
+            all_good=false
+            continue
+        fi
+        
+        # Check if Python packages are accessible
+        if docker exec "$container" /scripts/.venv/bin/python -c "import requests, plexapi; print('OK')" 2>/dev/null | grep -q "OK"; then
+            echo "    ✅ Python packages accessible"
+        else
+            echo "    ⚠️  Python packages not accessible (may need host venv rebuild)"
+            all_good=false
+        fi
+    done
+    
+    if [[ "$all_good" == "true" ]]; then
+        echo "  ✅ All containers can access virtual environment"
+    else
+        echo "  ⚠️  Some containers have virtual environment issues"
+        echo "  💡 The host virtual environment with required packages will be used"
+        echo "  💡 Containers access packages via mounted /scripts/.venv directory"
+    fi
+}
+
+# Verify container access to virtual environment
+verify_container_venv_access
+
+printf "
+
+"
+
+# Install Python packages in containers for media processing
+install_container_python_packages() {
+    echo "📦 Installing Python packages in *arr containers..."
+    
+    local packages=(
+        "ffmpeg-python==0.2.0"
+        "future==1.0.0"  
+        "PlexAPI==4.15.8"
+        "requests==2.31.0"
+    )
+    
+    local containers=("sonarr" "radarr" "lidarr")
+    local retry_file="$SCRIPTS_DIR/.container_package_retry"
+    
+    # Clear any old retry file
+    rm -f "$retry_file"
+    
+    for container in "${containers[@]}"; do
+        echo "  Installing packages in $container..."
+        if docker exec "$container" pip3 install --break-system-packages "${packages[@]}" >/dev/null 2>&1; then
+            echo "  ✅ Packages installed in $container"
+        else
+            echo "  ⚠️  Package installation failed in $container (container may not be ready yet)"
+            echo "$container" >> "$retry_file"
+        fi
+    done
+    
+    # Retry failed installations after a delay
+    if [[ -f "$retry_file" ]]; then
+        echo "  ⏳ Waiting 60 seconds for containers to fully initialize..."
+        sleep 60
+        
+        echo "  🔄 Retrying package installation for containers that failed..."
+        while IFS= read -r container; do
+            echo "    Retrying $container..."
+            if docker exec "$container" pip3 install --break-system-packages "${packages[@]}" >/dev/null 2>&1; then
+                echo "    ✅ Packages installed in $container"
+            else
+                echo "    ⚠️  $container still not ready - manual installation may be needed later"
+                echo "    💡 Manual command: docker exec $container pip3 install --break-system-packages ffmpeg-python future PlexAPI requests"
+            fi
+        done < "$retry_file"
+        rm -f "$retry_file"
+    fi
+}
+
+# Install packages in containers
+install_container_python_packages
+
 printf "\\n\\n"
 
 # Configure the access to the Deluge Daemon
@@ -720,6 +815,27 @@ cat > "$SCRIPTS_DIR/mediabox_config.json" <<EOF
     "movies": "$moviedirectory",
     "music": "$musicdirectory",
     "misc": "$miscdirectory"
+  },
+  "container_support": true,
+  "plex_integration": {
+    "url": "\${PLEX_URL}",
+    "token": "\${PLEX_TOKEN}",
+    "path_mappings": {
+      "tv": "/data/tv",
+      "movies": "/data/movies",
+      "music": "/data/music"
+    }
+  },
+  "transcoding": {
+    "video": {
+      "codec": "libx264",
+      "crf": 23,
+      "audio_codec": "aac"
+    },
+    "audio": {
+      "codec": "libmp3lame",
+      "bitrate": "320k"
+    }
   }
 }
 EOF
@@ -751,6 +867,122 @@ if ! crontab -l 2>/dev/null | grep -q "remove_files.py"; then
 else
     echo "✓ Media cleanup cron job already exists"
 fi
+
+# Webhook Configuration Instructions
+show_webhook_configuration() {
+    echo "🔗 *ARR WEBHOOK CONFIGURATION"
+    echo "Configure these webhooks after setup completes:"
+    echo ""
+    echo "📺 SONARR (TV Shows) - http://localhost:8989"
+    echo "   1. Settings → Connect → Add → Custom Script"
+    echo "   2. Name: 'Mediabox Processing'"
+    echo "   3. Path: /scripts/import.sh"
+    echo "   4. Triggers: ☑ On Import, ☑ On Upgrade"
+    echo "   5. Arguments: (leave blank)"
+    echo ""
+    echo "🎬 RADARR (Movies) - http://localhost:7878"
+    echo "   1. Settings → Connect → Add → Custom Script"
+    echo "   2. Name: 'Mediabox Processing'"
+    echo "   3. Path: /scripts/import.sh"
+    echo "   4. Triggers: ☑ On Import, ☑ On Upgrade"
+    echo "   5. Arguments: (leave blank)"
+    echo ""
+    echo "🎵 LIDARR (Music) - http://localhost:8686"
+    echo "   1. Settings → Connect → Add → Custom Script"
+    echo "   2. Name: 'Mediabox Processing'"
+    echo "   3. Path: /scripts/import.sh"
+    echo "   4. Triggers: ☑ On Import, ☑ On Upgrade"
+    echo "   5. Arguments: (leave blank)"
+    echo ""
+}
+
+# Installation Validation
+validate_installation() {
+    echo "🔍 INSTALLATION VALIDATION"
+    
+    # Check containers are running
+    local containers=("sonarr" "radarr" "lidarr" "plex" "homer" "portainer")
+    echo "Checking container status..."
+    for container in "${containers[@]}"; do
+        if docker ps --format "table {{.Names}}" | grep -q "^$container$"; then
+            echo "  ✅ $container"
+        else
+            echo "  ⚠️  $container (not running)"
+        fi
+    done
+    
+    # Check virtual environment access in containers
+    echo ""
+    echo "Checking virtual environment access in *arr containers..."
+    for container in sonarr radarr lidarr; do
+        if docker exec "$container" /scripts/.venv/bin/python -c "import requests, plexapi; print('OK')" 2>/dev/null | grep -q "OK"; then
+            echo "  ✅ $container (venv packages accessible)"
+        else
+            echo "  ⚠️  $container (venv packages not accessible)"
+        fi
+    done
+    
+    # Check scripts mount
+    echo ""
+    echo "Checking script mounts..."
+    for container in sonarr radarr lidarr; do
+        if docker exec "$container" test -f "/scripts/import.sh" 2>/dev/null; then
+            echo "  ✅ $container (scripts mounted)"
+        else
+            echo "  ❌ $container (scripts not mounted)"
+        fi
+    done
+    
+    # Test host environment
+    echo ""
+    echo "Checking host environment..."
+    if [[ -f "$VENV_DIR/bin/activate" ]]; then
+        source "$VENV_DIR/bin/activate"
+        if python3 "$SCRIPTS_DIR/media_update.py" --help >/dev/null 2>&1; then
+            echo "  ✅ Host Python environment working"
+        else
+            echo "  ⚠️  Host Python environment has issues"
+        fi
+        deactivate
+    else
+        echo "  ❌ Virtual environment not found"
+    fi
+    
+    echo ""
+}
+
+# Show troubleshooting information
+show_troubleshooting() {
+    echo "🔧 TROUBLESHOOTING"
+    echo ""
+    echo "If virtual environment packages are not accessible in containers:"
+    echo "   # Rebuild host virtual environment:"
+    echo "   cd scripts && rm -rf .venv"
+    echo "   python3 -m venv .venv"
+    echo "   source .venv/bin/activate && pip install -r requirements.txt"
+    echo ""
+    echo "If containers can't access /scripts/.venv:"
+    echo "   # Check docker-compose.yml volume mounts for *arr services"
+    echo "   # Should include: ./scripts:/scripts"
+    echo ""
+    echo "If Plex token is missing:"
+    echo "   cd scripts && source .venv/bin/activate"
+    echo "   python3 get-plex-token.py --interactive"
+    echo ""
+    echo "To test webhook integration manually:"
+    echo "   docker exec sonarr bash -c 'export sonarr_eventtype=Test && /scripts/import.sh'"
+    echo ""
+    echo "View logs for debugging:"
+    echo "   tail -f scripts/import_\$(date +%Y%m%d).log"
+    echo "   tail -f scripts/media_update_*.log"
+    echo "   docker logs [container_name]"
+    echo ""
+}
+
+# Run validation and show configuration
+validate_installation
+show_webhook_configuration
+show_troubleshooting
 
 echo ""
 echo "Mediabox setup completed successfully!"
