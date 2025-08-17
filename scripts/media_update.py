@@ -93,31 +93,48 @@ import time
 from pathlib import Path
 
 def validate_config(config):
-    """Validate mediabox configuration structure"""
+    """Validate configuration structure and paths"""
     required_keys = ['venv_path', 'download_dirs', 'library_dirs']
-    
     for key in required_keys:
         if key not in config:
-            raise ValueError(f"Missing required config key: {key}")
+            raise ValueError(f"Missing required configuration key: {key}")
     
     # Validate venv_path exists
     if not os.path.exists(config['venv_path']):
         raise ValueError(f"Virtual environment path does not exist: {config['venv_path']}")
     
-    # Validate download_dirs structure
+    # Get container information for smart validation
+    is_container, container_type = detect_container_environment()
+    
+    # Validate download_dirs structure (only for host environment)
     if not isinstance(config['download_dirs'], list):
         raise ValueError("'download_dirs' must be a list")
     
-    for path in config['download_dirs']:
-        if not os.path.exists(path):
-            print(f"Warning: Download directory does not exist: {path}")
+    if not is_container:  # Only validate download dirs on host
+        for path in config['download_dirs']:
+            if not os.path.exists(path):
+                print(f"Warning: Download directory does not exist: {path}")
     
     # Validate library_dirs structure
     if not isinstance(config['library_dirs'], dict):
         raise ValueError("'library_dirs' must be a dictionary")
     
-    required_library_keys = ['tv', 'movies', 'music']
-    for lib_key in required_library_keys:
+    # Smart validation based on container type
+    if is_container and container_type:
+        # Only validate the library directory relevant to this container
+        validation_map = {
+            'sonarr': ['tv'],
+            'radarr': ['movies'], 
+            'lidarr': ['music']
+        }
+        
+        lib_keys_to_check = validation_map.get(container_type, ['tv', 'movies', 'music'])
+        print(f"DEBUG: Validating only {lib_keys_to_check} directories for {container_type} container")
+    else:
+        # Validate all directories on host
+        lib_keys_to_check = ['tv', 'movies', 'music']
+    
+    for lib_key in lib_keys_to_check:
         if lib_key not in config['library_dirs']:
             print(f"Warning: Missing library directory key: {lib_key}")
         else:
@@ -127,10 +144,70 @@ def validate_config(config):
     
     return config
 
+def detect_container_environment():
+    """Detect if running inside a Docker container and identify container type"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    is_container = script_dir == "/scripts"
+    
+    if is_container:
+        # Detect which container we're in based on available directories
+        container_type = None
+        if os.path.exists('/tv') and not os.path.exists('/movies') and not os.path.exists('/music'):
+            container_type = 'sonarr'
+        elif os.path.exists('/movies') and not os.path.exists('/tv') and not os.path.exists('/music'):
+            container_type = 'radarr'
+        elif os.path.exists('/music') and not os.path.exists('/tv') and not os.path.exists('/movies'):
+            container_type = 'lidarr'
+        else:
+            container_type = 'unknown'
+        
+        print(f"DEBUG: Running in Docker container environment ({container_type})")
+        return True, container_type
+    else:
+        print(f"DEBUG: Running on host environment (script_dir: {script_dir})")
+        return False, None
+
+def adapt_config_for_environment(config):
+    """Adapt configuration paths based on execution environment"""
+    is_container, container_type = detect_container_environment()
+    
+    if is_container:
+        # Running in container - adapt paths to container paths
+        adapted_config = config.copy()
+        
+        # Use container venv path
+        adapted_config['venv_path'] = "/scripts/.venv"
+        
+        # Adapt library directories to container mount points
+        adapted_config['library_dirs'] = {
+            'tv': '/tv',
+            'movies': '/movies',
+            'music': '/music',
+            'misc': '/misc'
+        }
+        
+        # Adapt download directories to container mount points
+        adapted_config['download_dirs'] = [
+            '/downloads/completed',
+            '/downloads/incomplete'
+        ]
+        
+        print(f"DEBUG: Adapted venv_path from {config['venv_path']} to {adapted_config['venv_path']}")
+        print(f"DEBUG: Adapted library_dirs for container environment ({container_type})")
+        return adapted_config
+    else:
+        # Running on host - use config as-is
+        return config
+
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "mediabox_config.json")
 try:
     with open(CONFIG_PATH, "r") as f:
         config = json.load(f)
+    
+    # Adapt config for current environment (container vs host)
+    config = adapt_config_for_environment(config)
+    
+    # Validate the adapted config
     config = validate_config(config)
 except FileNotFoundError:
     raise FileNotFoundError(f"Configuration file not found: {CONFIG_PATH}")
@@ -225,6 +302,42 @@ def get_media_files(root_dir, media_type):
         return get_audio_files(root_dir)
     else:  # both
         return get_video_files(root_dir) + get_audio_files(root_dir)
+
+def convert_host_path_to_plex_path(container_path):
+    """
+    Convert container file path to Plex container path for library matching.
+    
+    When running in containers, both media_update.py and Plex run in containers
+    with different mount points:
+    
+    *arr containers see:           Plex container sees:
+        /tv/Show/file.mkv      →      /data/tv/Show/file.mkv
+        /movies/Movie/file.mkv →      /data/movies/Movie/file.mkv
+        /music/Artist/file.mp3 →      /data/music/Artist/file.mp3
+    
+    Args:
+        container_path (str): File path as seen by *arr/media_update containers
+        
+    Returns:
+        str: Corresponding path as Plex container sees it
+    """
+    # Simple container-to-container path mapping
+    if container_path.startswith('/tv/'):
+        plex_path = container_path.replace('/tv/', '/data/tv/', 1)
+        logging.debug(f"Container to Plex path: {container_path} → {plex_path}")
+        return plex_path
+    elif container_path.startswith('/movies/'):
+        plex_path = container_path.replace('/movies/', '/data/movies/', 1)
+        logging.debug(f"Container to Plex path: {container_path} → {plex_path}")
+        return plex_path
+    elif container_path.startswith('/music/'):
+        plex_path = container_path.replace('/music/', '/data/music/', 1)
+        logging.debug(f"Container to Plex path: {container_path} → {plex_path}")
+        return plex_path
+    else:
+        # If no mapping found, return original path
+        logging.debug(f"No container path mapping needed for: {container_path}")
+        return container_path
 
 # Global list to track processed files for batch notifications
 processed_files = []
@@ -325,6 +438,14 @@ def notify_plex_library_update(file_path, retry_count=2):
                 plex_duplicate_detection = True  # Default enabled
                 plex_detailed_logging = True  # Default enabled
                 
+                # Convert container path to Plex container path for matching
+                plex_file_path = convert_host_path_to_plex_path(file_path)
+                logging.debug(f"Using Plex path for library matching: {plex_file_path}")
+                
+                # Determine which library section to update based on file path
+                sections_to_update = []
+                plex_path_lower = plex_file_path.lower()
+                
                 if os.path.exists(env_file):
                     with open(env_file, 'r') as f:
                         for line in f:
@@ -341,21 +462,31 @@ def notify_plex_library_update(file_path, retry_count=2):
                 sections_to_update = []
                 file_path_obj = Path(file_path)
                 
-                # Get all library sections and use precise path matching
+                # Get all library sections and use precise path matching with container awareness
                 for section in plex.library.sections():
                     for location in section.locations:
                         try:
                             location_path = Path(location)
-                            # Use pathlib for precise path matching
-                            if file_path_obj.is_relative_to(location_path):
+                            # Use both container-aware path and original path for matching
+                            plex_file_path_obj = Path(plex_file_path)
+                            
+                            # Try container-aware path first
+                            if plex_file_path_obj.is_relative_to(location_path):
                                 sections_to_update.append(section)
                                 if plex_detailed_logging:
-                                    logging.info(f"📂 File matches library location: {location}")
+                                    logging.info(f"📂 File matches library location (container path): {location}")
+                                    logging.info(f"📚 Library: {section.title} ({section.type})")
+                                break
+                            # Fallback to host path matching
+                            elif file_path_obj.is_relative_to(location_path):
+                                sections_to_update.append(section)
+                                if plex_detailed_logging:
+                                    logging.info(f"📂 File matches library location (host path): {location}")
                                     logging.info(f"📚 Library: {section.title} ({section.type})")
                                 break
                         except (ValueError, OSError):
                             # Fallback to string matching if path operations fail
-                            if file_path.lower().startswith(location.lower()):
+                            if plex_file_path.lower().startswith(location.lower()) or file_path.lower().startswith(location.lower()):
                                 sections_to_update.append(section)
                                 if plex_detailed_logging:
                                     logging.info(f"📂 File matches library location (fallback): {location}")
@@ -367,14 +498,31 @@ def notify_plex_library_update(file_path, retry_count=2):
                     for section in plex.library.sections():
                         section_type = section.type.lower()
                         if section_type == 'movie' and ('movie' in file_path_lower or '/movies/' in file_path_lower):
+=======
+                    section_type = section.type.lower()
+                    section_locations = [loc.lower() for loc in section.locations]
+                    
+                    # Check if file path matches any section location
+                    for location in section_locations:
+                        if plex_path_lower.startswith(location.lower()):
                             sections_to_update.append(section)
-                        elif section_type == 'show' and ('tv' in file_path_lower or '/tv/' in file_path_lower):
+                            logging.info(f"File matches {section_type} library: {section.title} (location: {location})")
+                            break
+                    
+                    # Fallback: match by content type if exact location matching failed
+                    if not sections_to_update:
+                        if section_type == 'movie' and ('/data/movies' in plex_path_lower or 'movie' in plex_path_lower):
                             sections_to_update.append(section)
-                        elif section_type == 'artist' and ('music' in file_path_lower or '/music/' in file_path_lower):
+                            logging.info(f"File matches {section_type} library by content type: {section.title}")
+                        elif section_type == 'show' and ('/data/tv' in plex_path_lower or 'tv' in plex_path_lower):
                             sections_to_update.append(section)
+                            logging.info(f"File matches {section_type} library by content type: {section.title}")
+                        elif section_type == 'artist' and ('/data/music' in plex_path_lower or 'music' in plex_path_lower):
+                            sections_to_update.append(section)
+                            logging.info(f"File matches {section_type} library by content type: {section.title}")
                 
                 if not sections_to_update:
-                    logging.warning(f"❌ No matching Plex library section found for: {file_path}")
+                    logging.warning(f"❌ No matching Plex library section found for: {plex_file_path} (original: {file_path})")
                     return False
                 
                 # Process each matching section with enhanced features
@@ -384,8 +532,11 @@ def notify_plex_library_update(file_path, retry_count=2):
                     # Duplicate detection - check if file already exists and is up-to-date
                     if plex_duplicate_detection:
                         try:
-                            # Search for existing media by file path
-                            existing_media = section.search(filepath=file_path)
+                            # Search for existing media by file path (try both container and host paths)
+                            existing_media = section.search(filepath=plex_file_path)
+                            if not existing_media:
+                                existing_media = section.search(filepath=file_path)
+                                
                             if existing_media:
                                 media_item = existing_media[0]
                                 file_mtime = os.path.getmtime(file_path)
@@ -458,7 +609,7 @@ def notify_plex_library_update(file_path, retry_count=2):
                         except Exception as e:
                             logging.debug(f"Could not get library analytics: {e}")
                     
-                logging.info(f"✅ Successfully notified Plex about updated file: {file_path}")
+                logging.info(f"✅ Successfully notified Plex about updated file: {plex_file_path} (host: {file_path})")
                 return True
                 
             except (PlexServerError, Unauthorized) as e:
