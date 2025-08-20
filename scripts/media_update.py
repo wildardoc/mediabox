@@ -342,378 +342,147 @@ def convert_host_path_to_plex_path(container_path):
 # Global list to track processed files for batch notifications
 processed_files = []
 
-def notify_plex_library_update(file_path, retry_count=2):
-    """
-    Enhanced Plex Media Server notification with advanced PlexAPI features.
+
+def detect_library_type(path):
+    """Detect Plex library type based on file path."""
+    path_lower = path.lower()
+    if '/storage/media/movies/' in path_lower or '/data/movies/' in path_lower or '/movies/' in path_lower:
+        return 'movie'
+    elif '/storage/media/tv/' in path_lower or '/data/tv/' in path_lower or '/tv/' in path_lower:
+        return 'show' 
+    elif '/storage/media/music/' in path_lower or '/data/music/' in path_lower or '/music/' in path_lower:
+        return 'artist'
+    else:
+        # Fallback: try to guess from path structure
+        if 'movie' in path_lower:
+            return 'movie'
+        elif any(x in path_lower for x in ['tv', 'show', 'series', 'season', 'episode']):
+            return 'show'
+        elif any(x in path_lower for x in ['music', 'album', 'artist']):
+            return 'artist'
+        return None
+
+def notify_plex_library_update(file_path, max_retries=2, retry_delay=5):
+    """Enhanced Plex notification with smart scanning and validation."""
     
-    This function uses intelligent path resolution, targeted scanning, media validation,
-    and smart retry logic for optimal Plex library management. Features include:
+    # Configuration loading
+    plex_url = os.getenv('PLEX_URL', 'http://localhost:32400')
+    plex_token = os.getenv('PLEX_TOKEN', '')
     
-    • Intelligent Path Resolution: Uses actual PlexAPI library locations for precise matching
-    • Granular Directory Scanning: Targets specific directories instead of full section scans
-    • Media Validation: Verifies files are successfully processed by Plex
-    • Duplicate Detection: Skips scanning if files are already up-to-date in Plex
-    • Enhanced Analytics: Provides detailed feedback on library changes
-    • Smart Retry Logic: Handles different error types with appropriate retry strategies
-    
-    Configuration options (via .env file):
-    • PLEX_SMART_SCANNING=true/false - Enable targeted directory scanning (default: true)
-    • PLEX_VALIDATE_MEDIA=true/false - Verify successful media processing (default: true)  
-    • PLEX_DUPLICATE_DETECTION=true/false - Skip already-processed files (default: true)
-    • PLEX_DETAILED_LOGGING=true/false - Enhanced logging with emojis (default: true)
-    
-    Args:
-        file_path (str): Path to the processed media file
-        retry_count (int): Number of retry attempts if Plex server is unavailable
-        
-    Returns:
-        bool: True if notification was successful, False otherwise
-    """
-    # Load configuration from environment
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    env_file = os.path.join(script_dir, '..', '.env')
-    
-    plex_url = None
-    plex_token = None
-    enable_notifications = True  # Default to enabled
-    
-    if os.path.exists(env_file):
-        with open(env_file, 'r') as f:
-            for line in f:
-                if line.startswith('PLEX_URL='):
-                    plex_url = line.split('=', 1)[1].strip()
-                elif line.startswith('PLEX_TOKEN='):
-                    plex_token = line.split('=', 1)[1].strip()
-                elif line.startswith('ENABLE_PLEX_NOTIFICATIONS='):
-                    enable_value = line.split('=', 1)[1].strip().lower()
-                    enable_notifications = enable_value in ('true', 'yes', '1', 'on')
-    
-    if not enable_notifications:
-        logging.info("Plex notifications disabled via ENABLE_PLEX_NOTIFICATIONS setting")
-        return True  # Return True to indicate "success" (notification not needed)
-    
-    if not plex_url or not plex_token:
-        logging.warning("Plex URL or token not configured in .env file")
+    if not plex_token:
+        logging.warning("PLEX_TOKEN not set. Skipping Plex notification.")
         return False
     
-    for attempt in range(retry_count + 1):
+    smart_scanning = os.getenv('PLEX_SMART_SCANNING', 'true').lower() == 'true'
+    validate_media = os.getenv('PLEX_VALIDATE_MEDIA', 'true').lower() == 'true'
+    detailed_logging = os.getenv('PLEX_DETAILED_LOGGING', 'true').lower() == 'true'
+    
+    # Convert host path to Plex container path for better matching
+    plex_file_path = convert_host_path_to_plex_path(file_path)
+    
+    # Improved library type detection based on file path
+    def detect_library_type(path):
+        path_lower = path.lower()
+        if '/storage/media/movies/' in path_lower or '/data/movies/' in path_lower or '/movies/' in path_lower:
+            return 'movie'
+        elif '/storage/media/tv/' in path_lower or '/data/tv/' in path_lower or '/tv/' in path_lower:
+            return 'show' 
+        elif '/storage/media/music/' in path_lower or '/data/music/' in path_lower or '/music/' in path_lower:
+            return 'artist'
+        else:
+            # Fallback: try to guess from path structure
+            if 'movie' in path_lower:
+                return 'movie'
+            elif any(x in path_lower for x in ['tv', 'show', 'series', 'season', 'episode']):
+                return 'show'
+            elif any(x in path_lower for x in ['music', 'album', 'artist']):
+                return 'artist'
+            return None
+    
+    expected_library_type = detect_library_type(file_path)
+    logging.info(f"🔍 Detected library type: {expected_library_type} for path: {file_path}")
+    
+    for attempt in range(1, max_retries + 1):
         try:
-            # Load configuration from environment
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            env_file = os.path.join(script_dir, '..', '.env')
+            # Import PlexAPI components inside try block to avoid scoping issues
+            from plexapi.server import PlexServer
+            from plexapi.exceptions import PlexServerError, Unauthorized, BadRequest
             
-            plex_url = None
-            plex_token = None
+            logging.info(f"🔌 Connecting to Plex server: {plex_url}")
+            plex = PlexServer(plex_url, plex_token, timeout=15)
             
-            if os.path.exists(env_file):
-                with open(env_file, 'r') as f:
-                    for line in f:
-                        if line.startswith('PLEX_URL='):
-                            plex_url = line.split('=', 1)[1].strip()
-                        elif line.startswith('PLEX_TOKEN='):
-                            plex_token = line.split('=', 1)[1].strip()
+            if detailed_logging:
+                logging.info(f"📺 Connected to Plex: {plex.friendlyName}")
             
-            if not plex_url or not plex_token:
-                logging.warning("Plex URL or token not configured in .env file")
-                return False
+            # Get library sections
+            sections = plex.library.sections()
+            matched_section = None
             
-            # Try to use PlexAPI for better integration
-            try:
-                from plexapi.server import PlexServer
-                from plexapi.exceptions import PlexServerError, Unauthorized
-                
-                # Try to import additional exception types for better error handling
-                try:
-                    from plexapi.exceptions import BadRequest, NotFound
-                    plexapi_advanced_exceptions = True
-                except ImportError:
-                    plexapi_advanced_exceptions = False
-                
-                logging.info(f"Connecting to Plex server: {plex_url} (attempt {attempt + 1}/{retry_count + 1})")
-                plex = PlexServer(plex_url, plex_token, timeout=15)
-                
-                # Load advanced configuration options from .env
-                plex_smart_scanning = True  # Default enabled
-                plex_validate_media = True  # Default enabled  
-                plex_duplicate_detection = True  # Default enabled
-                plex_detailed_logging = True  # Default enabled
-                
-                # Convert container path to Plex container path for matching
-                plex_file_path = convert_host_path_to_plex_path(file_path)
-                logging.debug(f"Using Plex path for library matching: {plex_file_path}")
-                
-                # Determine which library section to update based on file path
-                sections_to_update = []
-                plex_path_lower = plex_file_path.lower()
-                
-                if os.path.exists(env_file):
-                    with open(env_file, 'r') as f:
-                        for line in f:
-                            if line.startswith('PLEX_SMART_SCANNING='):
-                                plex_smart_scanning = line.split('=', 1)[1].strip().lower() in ('true', 'yes', '1', 'on')
-                            elif line.startswith('PLEX_VALIDATE_MEDIA='):
-                                plex_validate_media = line.split('=', 1)[1].strip().lower() in ('true', 'yes', '1', 'on')
-                            elif line.startswith('PLEX_DUPLICATE_DETECTION='):
-                                plex_duplicate_detection = line.split('=', 1)[1].strip().lower() in ('true', 'yes', '1', 'on')
-                            elif line.startswith('PLEX_DETAILED_LOGGING='):
-                                plex_detailed_logging = line.split('=', 1)[1].strip().lower() in ('true', 'yes', '1', 'on')
-                
-                # Enhanced path resolution using actual library locations
-                sections_to_update = []
-                file_path_obj = Path(file_path)
-                
-                # Get all library sections and use precise path matching with container awareness
-                for section in plex.library.sections():
+            # Enhanced library matching logic - prioritize by library type
+            for section in sections:
+                if detailed_logging:
+                    logging.info(f"📚 Checking library: {section.title} ({section.type})")
                     for location in section.locations:
-                        try:
-                            location_path = Path(location)
-                            # Use both container-aware path and original path for matching
-                            plex_file_path_obj = Path(plex_file_path)
-                            
-                            # Try container-aware path first
-                            if plex_file_path_obj.is_relative_to(location_path):
-                                sections_to_update.append(section)
-                                if plex_detailed_logging:
-                                    logging.info(f"📂 File matches library location (container path): {location}")
-                                    logging.info(f"📚 Library: {section.title} ({section.type})")
-                                break
-                            # Fallback to host path matching
-                            elif file_path_obj.is_relative_to(location_path):
-                                sections_to_update.append(section)
-                                if plex_detailed_logging:
-                                    logging.info(f"📂 File matches library location (host path): {location}")
-                                    logging.info(f"📚 Library: {section.title} ({section.type})")
-                                break
-                        except (ValueError, OSError):
-                            # Fallback to string matching if path operations fail
-                            if plex_file_path.lower().startswith(location.lower()) or file_path.lower().startswith(location.lower()):
-                                sections_to_update.append(section)
-                                if plex_detailed_logging:
-                                    logging.info(f"📂 File matches library location (fallback): {location}")
-                                break
+                        logging.info(f"   📁 Library path: {location}")
                 
-                # Fallback: match by content type if no location matches
-                if not sections_to_update:
-                    file_path_lower = file_path.lower()
-                    for section in plex.library.sections():
-                        section_type = section.type.lower()
-                        if section_type == 'movie' and ('/data/movies' in plex_path_lower or 'movie' in plex_path_lower):
-                            sections_to_update.append(section)
-                            logging.info(f"File matches {section_type} library by content type: {section.title}")
-                        elif section_type == 'show' and ('/data/tv' in plex_path_lower or 'tv' in plex_path_lower):
-                            sections_to_update.append(section)
-                            logging.info(f"File matches {section_type} library by content type: {section.title}")
-                        elif section_type == 'artist' and ('/data/music' in plex_path_lower or 'music' in plex_path_lower):
-                            sections_to_update.append(section)
-                            logging.info(f"File matches {section_type} library by content type: {section.title}")
-                            logging.info(f"File matches {section_type} library by content type: {section.title}")
-                        elif section_type == 'show' and ('/data/tv' in plex_path_lower or 'tv' in plex_path_lower):
-                            sections_to_update.append(section)
-                            logging.info(f"File matches {section_type} library by content type: {section.title}")
-                        elif section_type == 'artist' and ('/data/music' in plex_path_lower or 'music' in plex_path_lower):
-                            sections_to_update.append(section)
-                            logging.info(f"File matches {section_type} library by content type: {section.title}")
-                
-                if not sections_to_update:
-                    logging.warning(f"❌ No matching Plex library section found for: {plex_file_path} (original: {file_path})")
-                    return False
-                
-                # Process each matching section with enhanced features
-                for section in sections_to_update:
-                    section_updated = False
+                # First, try to match by library type
+                if expected_library_type and section.type == expected_library_type:
+                    # Then check if path matches
+                    for location in section.locations:
+                        if plex_file_path.startswith(location) or file_path.startswith(location):
+                            matched_section = section
+                            logging.info(f"✅ Found matching library: {section.title} (type: {section.type})")
+                            break
                     
-                    # Duplicate detection - check if file already exists and is up-to-date
-                    if plex_duplicate_detection:
-                        try:
-                            # Search for existing media by file path (try both container and host paths)
-                            existing_media = section.search(filepath=plex_file_path)
-                            if not existing_media:
-                                existing_media = section.search(filepath=file_path)
-                                
-                            if existing_media:
-                                media_item = existing_media[0]
-                                file_mtime = os.path.getmtime(file_path)
-                                plex_updated = media_item.updatedAt.timestamp()
-                                
-                                if file_mtime <= plex_updated:
-                                    if plex_detailed_logging:
-                                        logging.info(f"⏭️  File already up-to-date in Plex: {media_item.title}")
-                                    continue
-                                else:
-                                    if plex_detailed_logging:
-                                        logging.info(f"🔄 File modified since last Plex scan, updating...")
-                            else:
-                                if plex_detailed_logging:
-                                    logging.info(f"🆕 New file for Plex library")
-                        except Exception as e:
-                            if plex_detailed_logging:
-                                logging.debug(f"Could not check existing media: {e}")
-                    
-                    # Get library analytics before scan
-                    before_count = section.totalSize if plex_detailed_logging else 0
-                    
-                    # Enhanced scanning - use targeted directory scanning if smart scanning enabled
-                    if plex_smart_scanning:
-                        file_dir = os.path.dirname(file_path)
-                        if plex_detailed_logging:
-                            logging.info(f"🎯 Targeted scan of directory: {file_dir}")
-                        section.update(path=file_dir)
-                    else:
-                        if plex_detailed_logging:
-                            logging.info(f"📡 Full section scan: {section.title}")
-                        section.update()
-                    
-                    section_updated = True
-                    
-                    # Media validation - verify Plex found and processed the file
-                    if plex_validate_media and section_updated:
-                        time.sleep(2)  # Brief wait for scan completion
-                        try:
-                            search_results = section.search(filepath=file_path)
-                            if search_results:
-                                media_item = search_results[0]
-                                if plex_detailed_logging:
-                                    logging.info(f"✅ Plex successfully processed: {media_item.title}")
-                                    if hasattr(media_item, 'duration') and media_item.duration:
-                                        logging.info(f"   Duration: {media_item.duration}ms")
-                                    if hasattr(media_item, 'bitrate') and media_item.bitrate:
-                                        logging.info(f"   Bitrate: {media_item.bitrate}")
-                            else:
-                                logging.warning(f"⚠️  File not found in Plex after scan: {file_path}")
-                        except Exception as e:
-                            logging.warning(f"⚠️  Could not verify file in Plex: {e}")
-                    
-                    # Enhanced library analytics
-                    if plex_detailed_logging and section_updated:
-                        try:
-                            # Brief wait for analytics update
-                            time.sleep(1)
-                            after_count = section.totalSize
-                            
-                            if after_count > before_count:
-                                logging.info(f"📈 Library updated: {section.title}")
-                                logging.info(f"   Added {after_count - before_count} new items")
-                                logging.info(f"   Total items: {after_count}")
-                                if hasattr(section, 'totalDuration') and section.totalDuration:
-                                    hours = section.totalDuration // 3600000
-                                    logging.info(f"   Library size: {hours}h of content")
-                            else:
-                                logging.info(f"📊 Library scan completed, no new items detected")
-                        except Exception as e:
-                            logging.debug(f"Could not get library analytics: {e}")
-                    
-                logging.info(f"✅ Successfully notified Plex about updated file: {plex_file_path} (host: {file_path})")
-                return True
-                
-            except (PlexServerError, Unauthorized) as e:
-                error_msg = str(e).lower()
-                
-                # Smart retry logic based on error type
-                if "scanning" in error_msg:
-                    logging.info(f"📡 Library scan already in progress, waiting...")
-                    if attempt < retry_count:
-                        time.sleep(10)  # Longer wait for active scans
-                        continue
-                elif "timeout" in error_msg:
-                    logging.info(f"⏰ Scan timeout, retrying with longer timeout...")
-                    if attempt < retry_count:
-                        # Increase timeout for next attempt
-                        time.sleep(5)
-                        continue
-                elif "unauthorized" in error_msg or "forbidden" in error_msg:
-                    logging.error(f"🔐 Plex authentication failed: {e}")
-                    return False  # Don't retry authentication failures
-                else:
-                    logging.error(f"🔄 Plex server error (attempt {attempt + 1}): {e}")
-                    if attempt < retry_count:
-                        logging.info(f"Retrying in 5 seconds...")
-                        time.sleep(5)
-                        continue
-                    else:
-                        logging.error(f"❌ Failed to connect to Plex after {retry_count + 1} attempts")
-                        return False
-                        
-            except Exception as e:
-                # Handle additional PlexAPI exceptions and generic errors
-                error_msg = str(e).lower()
-                
-                if "permission" in error_msg or "insufficient" in error_msg:
-                    logging.error(f"🚫 Insufficient permissions for Plex operation: {e}")
-                    return False  # Don't retry permission errors
-                elif "library busy" in error_msg or "busy" in error_msg:
-                    logging.info(f"📚 Library busy, scheduling retry...")
-                    if attempt < retry_count:
-                        time.sleep(15)  # Longer wait for busy libraries
-                        continue
-                else:
-                    logging.error(f"❌ Unexpected error with PlexAPI (attempt {attempt + 1}): {e}")
-                    if attempt < retry_count:
-                        logging.info(f"Retrying in 5 seconds...")
-                        time.sleep(5)
-                        continue
-                    else:
-                        logging.error(f"❌ Failed to notify Plex after {retry_count + 1} attempts")
-                        return False
-                
-            except ImportError:
-                # Fallback to direct REST API if PlexAPI is not available
-                logging.info("PlexAPI not available, falling back to REST API")
-                
-                # Get library sections via REST API
-                response = requests.get(f"{plex_url}/library/sections", 
-                                      params={'X-Plex-Token': plex_token}, 
-                                      timeout=15)
-                
-                if response.status_code != 200:
-                    if response.status_code in [401, 403]:
-                        logging.error(f"Plex authentication failed: {response.status_code}")
-                        return False
-                    elif response.status_code in [500, 502, 503, 504]:
-                        if attempt < retry_count:
-                            logging.warning(f"Plex server error {response.status_code}, retrying in 5 seconds...")
-                            time.sleep(5)
-                            continue
-                        else:
-                            logging.error(f"Plex server unavailable after {retry_count + 1} attempts: {response.status_code}")
-                            return False
-                    else:
-                        logging.error(f"Failed to get Plex library sections: {response.status_code}")
-                        return False
-                
-                # Trigger a general library scan
-                scan_response = requests.get(f"{plex_url}/library/sections/all/refresh", 
-                                           params={'X-Plex-Token': plex_token}, 
-                                           timeout=15)
-                
-                if scan_response.status_code == 200:
-                    logging.info(f"Successfully triggered Plex library scan via REST API")
-                    return True
-                elif scan_response.status_code in [500, 502, 503, 504] and attempt < retry_count:
-                    logging.warning(f"Plex scan failed {scan_response.status_code}, retrying in 5 seconds...")
-                    time.sleep(5)
-                    continue
-                else:
-                    logging.error(f"Failed to trigger Plex scan: {scan_response.status_code}")
-                    return False
+                    if matched_section:
+                        break
             
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Network error connecting to Plex (attempt {attempt + 1}): {e}")
-            if attempt < retry_count:
-                logging.info(f"Retrying in 5 seconds...")
-                time.sleep(5)
-                continue
-            else:
-                logging.error(f"Failed to connect to Plex after {retry_count + 1} attempts due to network issues")
+            # If no type-specific match, fall back to path matching
+            if not matched_section:
+                for section in sections:
+                    for location in section.locations:
+                        if plex_file_path.startswith(location) or file_path.startswith(location):
+                            matched_section = section
+                            logging.info(f"✅ Found matching library: {section.title} (fallback path match)")
+                            break
+                    
+                    if matched_section:
+                        break
+            
+            if not matched_section:
+                logging.warning(f"⚠️ No matching Plex library found for: {plex_file_path}")
+                logging.warning(f"   Host path: {file_path}")
+                logging.warning(f"   Expected library type: {expected_library_type}")
                 return False
-                
+            
+            # Perform the scan
+            if smart_scanning:
+                file_dir = os.path.dirname(plex_file_path)
+                logging.info(f"🎯 Smart scanning directory: {file_dir}")
+                matched_section.update(path=file_dir)
+            else:
+                logging.info(f"📚 Full library scan: {matched_section.title}")
+                matched_section.update()
+            
+            logging.info(f"✅ Successfully triggered Plex scan for {matched_section.title} ({matched_section.type})")
+            return True
+            
+        except ImportError as e:
+            logging.error(f"❌ PlexAPI not available: {e}")
+            return False
+            
         except Exception as e:
-            logging.error(f"Unexpected error notifying Plex (attempt {attempt + 1}): {e}")
-            if attempt < retry_count:
-                logging.info(f"Retrying in 5 seconds...")
-                time.sleep(5)
+            if "Unauthorized" in str(e) or "401" in str(e):
+                logging.error(f"❌ Plex authentication failed: {e}")
+                return False
+            elif attempt < max_retries:
+                logging.error(f"❌ Plex error (attempt {attempt}): {e}")
+                logging.info(f"🔄 Retrying in {retry_delay} seconds...")
+                import time
+                time.sleep(retry_delay)
                 continue
             else:
-                logging.error(f"Failed to notify Plex after {retry_count + 1} attempts")
+                logging.error(f"❌ Failed to notify Plex after {max_retries} attempts: {e}")
                 return False
     
     return False
