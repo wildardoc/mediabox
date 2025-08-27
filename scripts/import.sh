@@ -302,10 +302,18 @@ detect_media_info() {
         # Handle different Radarr event types
         case "$event_type" in
             "Download")
-                media_path="${Radarr_Movie_Path:-${radarr_movie_path:-}}"
+                # Use the actual movie file if available, otherwise fallback to directory
+                local movie_file="${Radarr_MovieFile_Path:-${radarr_moviefile_path:-}}"
+                if [[ -n "$movie_file" ]]; then
+                    media_path="$movie_file"
+                    log_message "INFO" "Processing specific movie file: $movie_file" >&2
+                else
+                    media_path="${Radarr_Movie_Path:-${radarr_movie_path:-}}"
+                    log_message "INFO" "Processing movie directory: $media_path" >&2
+                fi
                 log_message "INFO" "Radarr Download event for movie: $title" >&2
-                if [[ -n "${Radarr_MovieFile_Path:-${radarr_moviefile_path:-}}" ]]; then
-                    log_message "DEBUG" "Movie file: ${Radarr_MovieFile_Path:-${radarr_moviefile_path:-}}" >&2
+                if [[ -n "$movie_file" ]]; then
+                    log_message "DEBUG" "Movie file: $movie_file" >&2
                 fi
                 result_output="$media_type|$media_path|$title|$event_type"
                 ;;
