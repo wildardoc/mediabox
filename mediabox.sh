@@ -868,19 +868,18 @@ else
     echo "✓ Media cleanup cron job already exists"
 fi
 
-# Setup conversion cleanup cron job (runs on system boot and daily)
+# Setup conversion cleanup cron job (runs on system boot only)
 echo "Setting up automatic conversion cleanup..."
 CONVERSION_CLEANUP_CRON_ENTRY_BOOT="@reboot cd $SCRIPTS_DIR && ./cleanup-conversions.sh --live >> $SCRIPTS_DIR/cleanup-conversions.log 2>&1"
-CONVERSION_CLEANUP_CRON_ENTRY_DAILY="0 4 * * * cd $SCRIPTS_DIR && ./cleanup-conversions.sh --live >> $SCRIPTS_DIR/cleanup-conversions.log 2>&1"
-CONVERSION_CLEANUP_CRON_COMMENT="# Mediabox conversion cleanup - runs on boot and daily at 4 AM"
+CONVERSION_CLEANUP_CRON_COMMENT="# Mediabox conversion cleanup - runs on boot to clean up any corruption from unexpected shutdown"
 
 # Check if conversion cleanup cron job already exists
 if ! crontab -l 2>/dev/null | grep -q "cleanup-conversions.sh"; then
-    # Add both cron jobs (boot and daily)
-    (crontab -l 2>/dev/null; echo "$CONVERSION_CLEANUP_CRON_COMMENT"; echo "$CONVERSION_CLEANUP_CRON_ENTRY_BOOT"; echo "$CONVERSION_CLEANUP_CRON_ENTRY_DAILY") | crontab -
-    echo "✓ Conversion cleanup cron jobs added (runs on boot and daily at 4 AM)"
+    # Add boot cleanup cron job only
+    (crontab -l 2>/dev/null; echo "$CONVERSION_CLEANUP_CRON_COMMENT"; echo "$CONVERSION_CLEANUP_CRON_ENTRY_BOOT") | crontab -
+    echo "✓ Conversion cleanup cron job added (runs on boot only)"
 else
-    echo "✓ Conversion cleanup cron jobs already exist"
+    echo "✓ Conversion cleanup cron job already exists"
 fi
 
 # Webhook Configuration Instructions
@@ -1006,7 +1005,7 @@ echo "Automation features:"
 echo "  - Webhook processing: Automatic media conversion on download"
 echo "  - Log rotation: Weekly compression and cleanup (Sundays at 2 AM)"
 echo "  - Media cleanup: Weekly duplicate/old file removal (Mondays at 3 AM)"
-echo "  - Conversion cleanup: Corrupted/incomplete file cleanup (on boot + daily at 4 AM)"
+echo "  - Conversion cleanup: Corrupted/incomplete file cleanup (on boot only)"
 echo ""
 echo "Manual operations:"
 echo "  - Log rotation: cd $SCRIPTS_DIR && ./rotate-logs.sh"
