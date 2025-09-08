@@ -544,7 +544,7 @@ def batch_notify_plex():
         if files:
             # Pick one representative file to trigger the section scan
             representative_file = files[0]
-            if notify_plex_library_update(representative_file, retry_count=1):
+            if notify_plex_library_update(representative_file, max_retries=1):
                 logging.info(f"Successfully triggered {section_type} library scan for {len(files)} files")
                 success = True
             else:
