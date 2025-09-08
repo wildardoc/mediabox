@@ -14,3 +14,7 @@ if ! python3 -c "import ffmpeg" >/dev/null 2>&1; then
 else
     echo "**** Python packages already installed ****"
 fi
+
+source scripts/.venv/bin/activate
+pip install -r scripts/requirements.txt --break-system-packages
+deactivate

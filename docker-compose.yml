@@ -115,6 +115,7 @@ services:
         - '/etc/localtime:/etc/localtime:ro'
         - './scripts:/scripts'
         - './scripts/install-python-packages.sh:/custom-cont-init.d/install-python-packages'
+        - '.env:/.env'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8686/api/v1/system/status"]
       interval: 30s
@@ -305,6 +306,7 @@ services:
         - '${MOVIEDIR}:/movies'
         - './scripts:/scripts'
         - './scripts/install-python-packages.sh:/custom-cont-init.d/install-python-packages'
+        - '.env:/.env'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7878/api/v3/system/status"]
       interval: 30s
@@ -339,7 +341,7 @@ services:
         - '${DLDIR}/incomplete:/data/incomplete'
         - '${TVDIR}:/tv'
         - './scripts:/scripts'
-        - './scripts/install-python-packages.sh:/custom-cont-init.d/install-python-packages'
+        - '.env:/.env'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8989/api/v3/system/status"]
       interval: 30s

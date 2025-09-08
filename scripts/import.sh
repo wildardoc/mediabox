@@ -468,8 +468,9 @@ execute_conversion() {
     log_message "INFO" "  Container path: $processing_path"
     log_message "INFO" "  Arguments: ${cmd_args[*]}"
     
-    # Execute conversion
-    log_message "INFO" "Executing: python3 $MEDIA_UPDATE_SCRIPT ${cmd_args[*]}"
+    # Execute conversion using virtual environment Python
+    local venv_python="/scripts/.venv/bin/python"
+    log_message "INFO" "Executing: $venv_python $MEDIA_UPDATE_SCRIPT ${cmd_args[*]}"
     
     # Change to script directory to ensure relative paths work
     cd "$SCRIPT_DIR" || {
@@ -477,7 +478,7 @@ execute_conversion() {
         return 1
     }
     
-    if python3 "$MEDIA_UPDATE_SCRIPT" "${cmd_args[@]}"; then
+    if "$venv_python" "$MEDIA_UPDATE_SCRIPT" "${cmd_args[@]}"; then
         local exit_code=$?
         log_message "INFO" "Media conversion completed successfully for: $title"
         
@@ -500,9 +501,9 @@ execute_conversion() {
         log_message "ERROR" "Media conversion failed for: $title (exit code: $exit_code)"
         
         # Log failure context
-        log_message "ERROR" "Failed command: python3 $MEDIA_UPDATE_SCRIPT ${cmd_args[*]}"
+        log_message "ERROR" "Failed command: $venv_python $MEDIA_UPDATE_SCRIPT ${cmd_args[*]}"
         log_message "ERROR" "Working directory: $(pwd)"
-        log_message "ERROR" "Python version: $(python3 --version 2>&1 || echo 'Python3 not found')"
+        log_message "ERROR" "Python version: $($venv_python --version 2>&1 || echo 'Virtual env Python not found')"
         
         return $exit_code
     fi
