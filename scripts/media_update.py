@@ -793,18 +793,10 @@ def transcode_file(input_file):
     base = os.path.splitext(input_file)[0]
     final_output_file = base + target_ext
     
-    # Use temp file if transcoding in place, otherwise use final name directly
-    try:
-        same_file = os.path.samefile(input_file, final_output_file)
-    except Exception:
-        # Fallback to case-insensitive comparison if samefile fails (e.g., file doesn't exist yet)
-        same_file = input_file.lower() == final_output_file.lower()
-    
-    if same_file:
-        temp_output_file = base + '.tmp' + target_ext
-        output_file = temp_output_file
-    else:
-        output_file = final_output_file
+    # Always use temp files for atomic operations to prevent incomplete output files
+    # This ensures that interrupted conversions don't leave partial files that get skipped
+    temp_output_file = base + '.tmp' + target_ext
+    output_file = temp_output_file
         
     global unfinished_output_file
     unfinished_output_file = output_file
