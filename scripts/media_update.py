@@ -238,6 +238,7 @@ import subprocess
 import argparse
 import urllib.request
 import urllib.parse
+import time
 
 # Setup logging
 now = datetime.now()
@@ -793,18 +794,17 @@ def transcode_file(input_file):
     base = os.path.splitext(input_file)[0]
     final_output_file = base + target_ext
     
-    # Use temp file if transcoding in place, otherwise use final name directly
+    # Always use temp file for atomic operations to prevent corrupted files
+    # This addresses Issue #30 - incomplete output files after interruption
+    temp_output_file = base + '.tmp' + target_ext
+    output_file = temp_output_file
+    
+    # Check if we're transcoding to the same filename (for logging purposes)
     try:
         same_file = os.path.samefile(input_file, final_output_file)
     except Exception:
         # Fallback to case-insensitive comparison if samefile fails (e.g., file doesn't exist yet)
         same_file = input_file.lower() == final_output_file.lower()
-    
-    if same_file:
-        temp_output_file = base + '.tmp' + target_ext
-        output_file = temp_output_file
-    else:
-        output_file = final_output_file
         
     global unfinished_output_file
     unfinished_output_file = output_file
@@ -888,18 +888,21 @@ def transcode_file(input_file):
         if result.returncode == 0:
             unfinished_output_file = None
             
-            # If we used a temp file, move it to the final location
+            # Atomically move temp file to final location (always required now)
             if output_file != final_output_file:
                 try:
                     if os.path.exists(final_output_file):
-                        os.remove(final_output_file)  # Remove original before moving temp
+                        os.remove(final_output_file)  # Remove existing file before atomic rename
                     os.rename(output_file, final_output_file)
-                    logging.info(f"Moved temp file to final location: {final_output_file}")
-                    print(f"Moved temp file to final location: {final_output_file}")
+                    logging.info(f"Atomically moved temp file to final location: {final_output_file}")
+                    print(f"Atomically moved temp file to final location: {final_output_file}")
                 except Exception as e:
-                    logging.error(f"Failed to move temp file to final location: {e}")
-                    print(f"Failed to move temp file to final location: {e}")
+                    logging.error(f"Failed to atomically move temp file to final location: {e}")
+                    print(f"Failed to atomically move temp file to final location: {e}")
                     return
+            else:
+                # This should not happen with always-temp logic, but handle gracefully
+                logging.warning(f"Unexpected: temp file same as final file: {final_output_file}")
             
             logging.info(f"Success: {final_output_file}")
             print(f"Success: {final_output_file}")
@@ -924,7 +927,38 @@ def transcode_file(input_file):
         logging.error(f"Exception during transcoding: {e}")
         print(f"Exception during transcoding: {e}")
 
+def cleanup_orphaned_temp_files():
+    """Clean up any orphaned .tmp.mp4 or .tmp.mp3 files from previous interrupted runs."""
+    temp_files_cleaned = 0
+    
+    # Search all library directories for orphaned temp files
+    for lib_dir in MEDIA_LIBRARY_DIRS:
+        if not os.path.exists(lib_dir):
+            continue
+            
+        for root, dirs, files in os.walk(lib_dir):
+            for file in files:
+                if file.endswith(('.tmp.mp4', '.tmp.mp3')):
+                    temp_file_path = os.path.join(root, file)
+                    try:
+                        # Check if temp file is old (more than 1 hour) to avoid removing active conversions
+                        file_age = time.time() - os.path.getmtime(temp_file_path)
+                        if file_age > 3600:  # 1 hour
+                            os.remove(temp_file_path)
+                            temp_files_cleaned += 1
+                            logging.info(f"Cleaned up orphaned temp file: {temp_file_path}")
+                            print(f"Cleaned up orphaned temp file: {temp_file_path}")
+                    except Exception as e:
+                        logging.warning(f"Could not clean up temp file {temp_file_path}: {e}")
+    
+    if temp_files_cleaned > 0:
+        logging.info(f"Startup cleanup: removed {temp_files_cleaned} orphaned temp files")
+        print(f"Startup cleanup: removed {temp_files_cleaned} orphaned temp files")
+
 def main():
+    # Clean up any orphaned temp files from previous interrupted runs
+    cleanup_orphaned_temp_files()
+    
     parser = argparse.ArgumentParser(description="Transcode media files.")
     parser.add_argument('--dir', type=str, help='Directory to search for media files')
     parser.add_argument('--file', type=str, help='Single media file to convert')

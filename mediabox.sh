@@ -868,6 +868,21 @@ else
     echo "✓ Media cleanup cron job already exists"
 fi
 
+# Setup conversion cleanup cron job (runs on system boot and daily)
+echo "Setting up automatic conversion cleanup..."
+CONVERSION_CLEANUP_CRON_ENTRY_BOOT="@reboot cd $SCRIPTS_DIR && ./cleanup-conversions.sh --live >> $SCRIPTS_DIR/cleanup-conversions.log 2>&1"
+CONVERSION_CLEANUP_CRON_ENTRY_DAILY="0 4 * * * cd $SCRIPTS_DIR && ./cleanup-conversions.sh --live >> $SCRIPTS_DIR/cleanup-conversions.log 2>&1"
+CONVERSION_CLEANUP_CRON_COMMENT="# Mediabox conversion cleanup - runs on boot and daily at 4 AM"
+
+# Check if conversion cleanup cron job already exists
+if ! crontab -l 2>/dev/null | grep -q "cleanup-conversions.sh"; then
+    # Add both cron jobs (boot and daily)
+    (crontab -l 2>/dev/null; echo "$CONVERSION_CLEANUP_CRON_COMMENT"; echo "$CONVERSION_CLEANUP_CRON_ENTRY_BOOT"; echo "$CONVERSION_CLEANUP_CRON_ENTRY_DAILY") | crontab -
+    echo "✓ Conversion cleanup cron jobs added (runs on boot and daily at 4 AM)"
+else
+    echo "✓ Conversion cleanup cron jobs already exist"
+fi
+
 # Webhook Configuration Instructions
 show_webhook_configuration() {
     echo "🔗 *ARR WEBHOOK CONFIGURATION"
@@ -991,10 +1006,12 @@ echo "Automation features:"
 echo "  - Webhook processing: Automatic media conversion on download"
 echo "  - Log rotation: Weekly compression and cleanup (Sundays at 2 AM)"
 echo "  - Media cleanup: Weekly duplicate/old file removal (Mondays at 3 AM)"
+echo "  - Conversion cleanup: Corrupted/incomplete file cleanup (on boot + daily at 4 AM)"
 echo ""
 echo "Manual operations:"
 echo "  - Log rotation: cd $SCRIPTS_DIR && ./rotate-logs.sh"
 echo "  - Media cleanup: cd $SCRIPTS_DIR && python3 remove_files.py"
+echo "  - Conversion cleanup: cd $SCRIPTS_DIR && ./cleanup-conversions.sh --live"
 echo "  - Media conversion: cd $SCRIPTS_DIR && python3 media_update.py --dir [path] --type [video|audio|both]"
 echo ""
 echo "Log locations:"
@@ -1002,6 +1019,7 @@ echo "  - Webhook activity: $SCRIPTS_DIR/import_YYYYMMDD.log"
 echo "  - Media processing: $SCRIPTS_DIR/media_update_YYYYMMDD.log"
 echo "  - Log rotation: $SCRIPTS_DIR/log-rotation.log"
 echo "  - Media cleanup: $SCRIPTS_DIR/cleanup_downloads.log"
+echo "  - Conversion cleanup: $SCRIPTS_DIR/cleanup-conversions.log"
 echo "  - Retention policy: 14 days uncompressed, 90 days compressed, then deleted"
 echo ""
 
