@@ -266,6 +266,70 @@ for sig in (signal.SIGINT, signal.SIGTERM):
 VIDEO_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv')
 AUDIO_EXTS = ('.flac', '.wav', '.aiff', '.ape', '.wv', '.m4a', '.ogg', '.opus', '.wma')
 
+def detect_hardware_acceleration():
+    """
+    Detect available hardware acceleration methods for FFmpeg.
+    Returns a dict with available acceleration options.
+    """
+    hwaccel_options = {
+        'available': False,
+        'method': 'software',
+        'encoder': 'libx264',
+        'extra_args': []
+    }
+    
+    try:
+        # Check if GPU devices are available
+        if not os.path.exists('/dev/dri'):
+            logging.info("No GPU devices found (/dev/dri missing)")
+            return hwaccel_options
+            
+        # Test VAAPI support
+        test_cmd = [
+            'ffmpeg', '-hide_banner', '-f', 'lavfi', '-i', 'testsrc2=duration=0.1:size=64x64:rate=1',
+            '-vaapi_device', '/dev/dri/renderD128', '-vf', 'format=nv12,hwupload',
+            '-c:v', 'h264_vaapi', '-t', '0.1', '-f', 'null', '-'
+        ]
+        
+        result = subprocess.run(test_cmd, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            logging.info("VAAPI hardware acceleration available")
+            hwaccel_options.update({
+                'available': True,
+                'method': 'vaapi',
+                'encoder': 'h264_vaapi',
+                'extra_args': ['-vaapi_device', '/dev/dri/renderD128', '-vf', 'format=nv12,hwupload']
+            })
+            return hwaccel_options
+            
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError) as e:
+        logging.debug(f"VAAPI test failed: {e}")
+    
+    try:
+        # Test software encoding with optimized settings
+        test_cmd = [
+            'ffmpeg', '-hide_banner', '-f', 'lavfi', '-i', 'testsrc2=duration=0.1:size=64x64:rate=1',
+            '-c:v', 'libx264', '-preset', 'medium', '-crf', '23', '-t', '0.1', '-f', 'null', '-'
+        ]
+        
+        result = subprocess.run(test_cmd, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            logging.info("Software encoding with x264 available")
+            # Use optimized software settings for older systems
+            hwaccel_options.update({
+                'available': True,
+                'method': 'software_optimized', 
+                'encoder': 'libx264',
+                'extra_args': ['-preset', 'medium', '-threads', '0']  # 0 = auto-detect threads
+            })
+            return hwaccel_options
+            
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError) as e:
+        logging.debug(f"Software encoding test failed: {e}")
+    
+    logging.warning("No suitable encoding method found, using basic software fallback")
+    return hwaccel_options
+
 def get_video_files(root_dir):
     files = []
     for dirpath, _, filenames in os.walk(root_dir):
@@ -611,6 +675,7 @@ def extract_pgs_subtitles(input_file, probe):
 def build_ffmpeg_command(input_file, probe=None):
     """
     Build ffmpeg command-line arguments for transcoding the input file.
+    Uses GPU acceleration when available, falls back to software encoding.
     Args:
         input_file (str): Path to the input media file.
         probe (dict, optional): ffmpeg.probe result. If None, probe will be called.
@@ -722,6 +787,22 @@ def build_ffmpeg_command(input_file, probe=None):
             subtitle_codecs += [f'-c:s:{sub_idx}', 'mov_text']
             sub_idx += 1
 
+    # Detect hardware acceleration capabilities
+    hwaccel = detect_hardware_acceleration()
+    
+    # Build video encoding args based on available acceleration
+    video_args = []
+    if hwaccel['method'] == 'vaapi':
+        video_args = ['-c:v', hwaccel['encoder']] + hwaccel['extra_args'] + ['-qp', '23']
+        logging.info("Using VAAPI hardware acceleration")
+    elif hwaccel['method'] == 'software_optimized':
+        video_args = ['-c:v', hwaccel['encoder']] + hwaccel['extra_args'] + ['-crf', '23']
+        logging.info("Using optimized software encoding")
+    else:
+        # Basic fallback
+        video_args = ['-c:v', 'libx264', '-crf', '23', '-preset', 'fast']
+        logging.info("Using basic software encoding")
+
     # Build ffmpeg args
     args = [
         '-map', '0:v:0',  # First video stream
@@ -732,8 +813,7 @@ def build_ffmpeg_command(input_file, probe=None):
         *subtitle_codecs,
         *audio_lang_metadata,
         *subtitle_lang_metadata,
-        '-c:v', 'libx264',
-        '-crf', '23',
+        *video_args,
         '-c:a', 'aac',
         '-y',  # Overwrite output
         '-movflags', 'faststart'

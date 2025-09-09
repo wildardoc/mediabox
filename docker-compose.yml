@@ -97,6 +97,8 @@ services:
     network_mode: "bridge"
     ports:
         - '${IP_ADDRESS}:8686:8686'
+    devices:
+        - /dev/dri:/dev/dri
     environment:
         - PUID=${PUID}
         - PGID=${PGID}
@@ -210,6 +212,8 @@ services:
         - '${IP_ADDRESS}:32412:32412/udp'
         - '${IP_ADDRESS}:32413:32413/udp'
         - '${IP_ADDRESS}:32414:32414/udp'
+    devices:
+        - /dev/dri:/dev/dri
     environment:
         - ADVERTISE_IP=http://${IP_ADDRESS}:32400/
         - ALLOWED_NETWORKS=${CIDR_ADDRESS}
@@ -289,6 +293,8 @@ services:
     network_mode: "bridge"
     ports:
         - '${IP_ADDRESS}:7878:7878'
+    devices:
+        - /dev/dri:/dev/dri
     environment:
         - PUID=${PUID}
         - PGID=${PGID}
@@ -325,6 +331,8 @@ services:
     network_mode: "bridge"
     ports:
         - '${IP_ADDRESS}:8989:8989'
+    devices:
+        - /dev/dri:/dev/dri
     environment:
         - PUID=${PUID}
         - PGID=${PGID}
