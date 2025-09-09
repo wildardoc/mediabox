@@ -76,7 +76,7 @@ wheels/
 *.log
 *.log.*
 media_update_??????????????.log
-conversion_stats.json              # Smart bulk converter runtime statistics
+scripts/conversion_stats.json      # Smart bulk converter runtime statistics
 
 # ------------------------------------------------------------------------------
 # OPERATING SYSTEM FILES
