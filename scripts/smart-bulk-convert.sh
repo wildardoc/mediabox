@@ -94,20 +94,36 @@ EOF
 # Get system resource usage (ZFS-aware)
 get_system_stats() {
     # CPU usage (1-minute average, inverted from idle)
-    local cpu_idle=$(top -bn1 | grep "Cpu(s)" | awk '{print $8}' | sed 's/%id,//')
-    local cpu_usage=$(echo "100 - $cpu_idle" | bc -l | cut -d. -f1)
+    local cpu_idle=$(top -bn1 | grep "Cpu(s)" | awk '{print $8}' | sed 's/%id,//' | sed 's/[^0-9.]//g')
+    # Ensure we have a valid number
+    if [[ ! "$cpu_idle" =~ ^[0-9]*\.?[0-9]+$ ]]; then
+        cpu_idle="0"
+    fi
+    local cpu_usage=$(echo "100 - $cpu_idle" | bc -l 2>/dev/null | cut -d. -f1)
+    # Fallback if bc fails
+    if [[ ! "$cpu_usage" =~ ^[0-9]+$ ]]; then
+        cpu_usage="0"
+    fi
     
     # Memory usage - ZFS-aware calculation
     local mem_info=$(cat /proc/meminfo)
     local total_mem_kb=$(echo "$mem_info" | grep '^MemTotal:' | awk '{print $2}')
     local available_mem_kb=$(echo "$mem_info" | grep '^MemAvailable:' | awk '{print $2}')
     
+    # Ensure we have valid numbers
+    [[ ! "$total_mem_kb" =~ ^[0-9]+$ ]] && total_mem_kb="1000000"
+    [[ ! "$available_mem_kb" =~ ^[0-9]+$ ]] && available_mem_kb="500000"
+    
     # Calculate memory pressure based on MemAvailable (accounts for ZFS ARC)
-    local mem_pressure_percent=$(echo "scale=0; ((($total_mem_kb - $available_mem_kb) * 100) / $total_mem_kb)" | bc)
-    local available_gb=$(echo "scale=1; $available_mem_kb / 1024 / 1024" | bc)
+    local mem_pressure_percent=$(echo "scale=0; ((($total_mem_kb - $available_mem_kb) * 100) / $total_mem_kb)" | bc 2>/dev/null || echo "50")
+    local available_gb=$(echo "scale=1; $available_mem_kb / 1024 / 1024" | bc 2>/dev/null || echo "1.0")
     
     # Load average (1-minute)
-    local load_avg=$(uptime | awk -F'load average:' '{print $2}' | awk -F',' '{print $1}' | xargs)
+    local load_avg=$(uptime | awk -F'load average:' '{print $2}' | awk -F',' '{print $1}' | xargs | sed 's/[^0-9.]//g')
+    # Ensure we have a valid number
+    if [[ ! "$load_avg" =~ ^[0-9]*\.?[0-9]+$ ]]; then
+        load_avg="0.0"
+    fi
     
     echo "$cpu_usage,$mem_pressure_percent,$load_avg,$available_gb"
 }
@@ -134,10 +150,16 @@ check_priority_processes() {
 # Determine optimal number of conversion jobs
 calculate_optimal_jobs() {
     local stats=$(get_system_stats)
-    local cpu_usage=$(echo "$stats" | cut -d',' -f1)
-    local mem_percent=$(echo "$stats" | cut -d',' -f2)
-    local load_avg=$(echo "$stats" | cut -d',' -f3)
-    local available_gb=$(echo "$stats" | cut -d',' -f4)
+    local cpu_usage=$(echo "$stats" | cut -d',' -f1 | sed 's/[^0-9]//g')
+    local mem_percent=$(echo "$stats" | cut -d',' -f2 | sed 's/[^0-9]//g')
+    local load_avg=$(echo "$stats" | cut -d',' -f3 | sed 's/[^0-9.]//g')
+    local available_gb=$(echo "$stats" | cut -d',' -f4 | sed 's/[^0-9.]//g')
+    
+    # Ensure we have valid numbers for arithmetic
+    [[ ! "$cpu_usage" =~ ^[0-9]+$ ]] && cpu_usage="0"
+    [[ ! "$mem_percent" =~ ^[0-9]+$ ]] && mem_percent="0"
+    [[ ! "$load_avg" =~ ^[0-9]*\.?[0-9]+$ ]] && load_avg="0.0"
+    [[ ! "$available_gb" =~ ^[0-9]*\.?[0-9]+$ ]] && available_gb="1.0"
     
     local priority_processes=$(check_priority_processes)
     local optimal_jobs=$MAX_PARALLEL_JOBS
@@ -150,14 +172,27 @@ calculate_optimal_jobs() {
         log "INFO" "High-priority processes detected, reducing parallel jobs to $optimal_jobs"
     fi
     
-    # Check resource thresholds
+    # Check resource thresholds - ensure safe arithmetic operations
     if [[ $cpu_usage -gt $MAX_CPU_PERCENT ]]; then
         optimal_jobs=$(( optimal_jobs - 1 ))
         log "INFO" "CPU usage high (${cpu_usage}%), reducing jobs to $optimal_jobs"
     fi
     
     # ZFS-aware memory check - use available memory instead of usage percentage  
-    if (( $(echo "$available_gb < $MIN_AVAILABLE_MEMORY_GB" | bc -l) )); then
+    local memory_ok=1
+    if command -v bc >/dev/null 2>&1; then
+        if (( $(echo "$available_gb < $MIN_AVAILABLE_MEMORY_GB" | bc -l 2>/dev/null || echo "0") )); then
+            memory_ok=0
+        fi
+    else
+        # Fallback comparison without bc
+        local available_int=$(echo "$available_gb" | cut -d. -f1)
+        if [[ $available_int -lt $MIN_AVAILABLE_MEMORY_GB ]]; then
+            memory_ok=0
+        fi
+    fi
+    
+    if [[ $memory_ok -eq 0 ]]; then
         optimal_jobs=0
         log "WARN" "Low available memory (${available_gb}GB < ${MIN_AVAILABLE_MEMORY_GB}GB), pausing conversions"
     elif [[ $mem_percent -gt $MAX_MEMORY_PERCENT ]]; then
@@ -165,14 +200,24 @@ calculate_optimal_jobs() {
         log "INFO" "Memory pressure high (${mem_percent}%), reducing jobs to $optimal_jobs"
     fi
     
-    if (( $(echo "$load_avg > $MAX_LOAD_AVERAGE" | bc -l) )); then
-        optimal_jobs=$(( optimal_jobs - 1 ))
-        log "INFO" "Load average high (${load_avg}), reducing jobs to $optimal_jobs"
+    # Load average check with fallback
+    local load_high=0
+    if command -v bc >/dev/null 2>&1; then
+        if (( $(echo "$load_avg > $MAX_LOAD_AVERAGE" | bc -l 2>/dev/null || echo "0") )); then
+            load_high=1
+        fi
+    else
+        # Fallback comparison without bc
+        local load_int=$(echo "$load_avg" | cut -d. -f1)
+        local max_load_int=$(echo "$MAX_LOAD_AVERAGE" | cut -d. -f1)
+        if [[ $load_int -gt $max_load_int ]]; then
+            load_high=1
+        fi
     fi
     
-    if (( $(echo "$available_gb < $MIN_AVAILABLE_MEMORY_GB" | bc -l) )); then
-        optimal_jobs=0
-        log "WARN" "Low available memory (${available_gb}GB), pausing conversions"
+    if [[ $load_high -eq 1 ]]; then
+        optimal_jobs=$(( optimal_jobs - 1 ))
+        log "INFO" "Load average high (${load_avg}), reducing jobs to $optimal_jobs"
     fi
     
     # Ensure we stay within bounds
