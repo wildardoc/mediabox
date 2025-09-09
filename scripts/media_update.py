@@ -92,6 +92,41 @@ import requests
 import time
 from pathlib import Path
 
+def load_env_file():
+    """Load environment variables from .env file if it exists."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    env_file = os.path.join(script_dir, '..', '.env')
+    
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip comments and empty lines
+                    if line and not line.startswith('#') and '=' in line:
+                        # Split on first = to handle values with = in them
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip()
+                        
+                        # Remove quotes if present
+                        if (value.startswith('"') and value.endswith('"')) or \
+                           (value.startswith("'") and value.endswith("'")):
+                            value = value[1:-1]
+                        
+                        # Only set if not already in environment (environment takes precedence)
+                        if key not in os.environ:
+                            os.environ[key] = value
+            
+            return True
+        except Exception as e:
+            print(f"Warning: Failed to load .env file: {e}")
+            return False
+    return False
+
+# Load environment variables from .env file at script startup
+load_env_file()
+
 def validate_config(config):
     """Validate configuration structure and paths"""
     required_keys = ['venv_path', 'download_dirs', 'library_dirs']
