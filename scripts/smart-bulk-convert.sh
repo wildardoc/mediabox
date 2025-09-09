@@ -30,6 +30,7 @@ TOTAL_ERRORS=0
 START_TIME=$(date +%s)
 CONVERSION_QUEUE=()
 ACTIVE_PIDS=()
+TARGET_DIRS=()
 
 # Logging function
 log() {
@@ -51,6 +52,11 @@ load_config() {
             MAX_LOAD_AVERAGE=$(jq -r '.max_load_average // 8.0' "$CONFIG_FILE")
             MAX_PARALLEL_JOBS=$(jq -r '.max_parallel_jobs // 4' "$CONFIG_FILE")
             CHECK_INTERVAL=$(jq -r '.check_interval // 30' "$CONFIG_FILE")
+            # Handle boolean values correctly
+            local plex_priority_val=$(jq -r '.plex_priority' "$CONFIG_FILE")
+            local download_priority_val=$(jq -r '.download_priority' "$CONFIG_FILE")
+            [[ "$plex_priority_val" == "true" ]] && PLEX_PRIORITY=true || PLEX_PRIORITY=false
+            [[ "$download_priority_val" == "true" ]] && DOWNLOAD_PRIORITY=true || DOWNLOAD_PRIORITY=false
         fi
     else
         log "INFO" "No config file found, using defaults"
@@ -114,18 +120,12 @@ check_priority_processes() {
     if [[ "$PLEX_PRIORITY" == "true" ]]; then
         local plex_processes=$(pgrep -f "PlexTranscoder\|plex.*ffmpeg" | wc -l)
         high_priority_count=$((high_priority_count + plex_processes))
-        if [[ $plex_processes -gt 0 ]]; then
-            log "DEBUG" "Detected $plex_processes active Plex transcoding process(es)"
-        fi
     fi
     
-    # Check for download/import processes
+    # Check for download/import processes  
     if [[ "$DOWNLOAD_PRIORITY" == "true" ]]; then
         local import_processes=$(pgrep -f "import\.sh\|media_update\.py" | wc -l)
         high_priority_count=$((high_priority_count + import_processes))
-        if [[ $import_processes -gt 0 ]]; then
-            log "DEBUG" "Detected $import_processes active import/download process(es)"
-        fi
     fi
     
     echo $high_priority_count
@@ -185,25 +185,52 @@ calculate_optimal_jobs() {
     echo $optimal_jobs
 }
 
+# Detect and adopt existing conversion processes
+detect_existing_conversions() {
+    log "INFO" "Detecting existing conversion processes..."
+    local existing_pids=$(pgrep -f "media_update\.py" || true)
+    
+    if [[ -n "$existing_pids" ]]; then
+        while IFS= read -r pid; do
+            if [[ -n "$pid" ]]; then
+                ACTIVE_PIDS+=($pid)
+                CURRENT_JOBS=$((CURRENT_JOBS + 1))
+                log "INFO" "Adopted existing conversion process (PID: $pid)"
+            fi
+        done <<< "$existing_pids"
+        log "INFO" "Adopted $CURRENT_JOBS existing conversion process(es)"
+    else
+        log "INFO" "No existing conversion processes found"
+    fi
+}
+
 # Build conversion queue
 build_conversion_queue() {
-    local target_dir="$1"
-    log "INFO" "Building conversion queue for $target_dir"
+    local target_dirs=("$@")
+    log "INFO" "Building conversion queue for directories: ${target_dirs[*]}"
     
     # Video extensions that media_update.py processes
     local video_extensions=("mkv" "mp4" "avi" "mov" "wmv" "flv")
     
-    # Find all video files that need conversion
-    for ext in "${video_extensions[@]}"; do
-        while IFS= read -r -d '' file; do
-            # Check if this file needs conversion based on media_update.py logic
-            if needs_conversion "$file"; then
-                CONVERSION_QUEUE+=("$file")
-            fi
-        done < <(find "$target_dir" -name "*.${ext}" -type f -print0)
+    # Find all video files that need conversion in all target directories
+    for target_dir in "${target_dirs[@]}"; do
+        if [[ ! -d "$target_dir" ]]; then
+            log "WARN" "Directory not found: $target_dir, skipping..."
+            continue
+        fi
+        
+        log "INFO" "Scanning directory: $target_dir"
+        for ext in "${video_extensions[@]}"; do
+            while IFS= read -r -d '' file; do
+                # Check if this file needs conversion based on media_update.py logic
+                if needs_conversion "$file"; then
+                    CONVERSION_QUEUE+=("$file")
+                fi
+            done < <(find "$target_dir" -name "*.${ext}" -type f -print0)
+        done
     done
     
-    log "INFO" "Found ${#CONVERSION_QUEUE[@]} files requiring conversion"
+    log "INFO" "Found ${#CONVERSION_QUEUE[@]} files requiring conversion across all directories"
 }
 
 # Check if a file needs conversion (simplified version of media_update.py logic)
@@ -370,7 +397,7 @@ usage() {
     cat << EOF
 Smart Bulk Media Converter
 
-USAGE: $0 [OPTIONS] <target_directory>
+USAGE: $0 [OPTIONS] <target_directory1> [target_directory2] ...
 
 OPTIONS:
     -c, --config FILE    Use custom configuration file
@@ -378,14 +405,15 @@ OPTIONS:
     -i, --interval N     Check interval in seconds (default: $CHECK_INTERVAL)
     --cpu-limit N        Max CPU usage percentage (default: $MAX_CPU_PERCENT)
     --memory-limit N     Max memory usage percentage (default: $MAX_MEMORY_PERCENT)
+    --load-limit N       Max load average (default: $MAX_LOAD_AVERAGE)
     --create-config      Create default configuration file
     -h, --help          Show this help
 
 EXAMPLES:
-    $0 /content/movies                    # Convert movies with smart resource management
-    $0 --max-jobs 2 /content/tv          # Limit to 2 parallel jobs
-    $0 --cpu-limit 60 /content/movies    # More conservative CPU usage
-    $0 --create-config                   # Create configuration file for customization
+    $0 /content/movies /content/tv            # Convert movies and TV with smart resource management
+    $0 --max-jobs 5 /content/movies          # Limit to 5 parallel jobs  
+    $0 --cpu-limit 95 /content/movies /content/tv  # More conservative CPU usage
+    $0 --create-config                       # Create configuration file for customization
 
 The script will:
 1. Monitor system resources (CPU, memory, load)
@@ -420,6 +448,10 @@ while [[ $# -gt 0 ]]; do
             MAX_MEMORY_PERCENT="$2"
             shift 2
             ;;
+        --load-limit)
+            MAX_LOAD_AVERAGE="$2"
+            shift 2
+            ;;
         --create-config)
             create_default_config
             exit 0
@@ -434,39 +466,40 @@ while [[ $# -gt 0 ]]; do
             exit 1
             ;;
         *)
-            if [[ -z "${TARGET_DIR:-}" ]]; then
-                TARGET_DIR="$1"
-            else
-                echo "Multiple target directories not supported" >&2
-                exit 1
-            fi
+            TARGET_DIRS+=("$1")
             shift
             ;;
     esac
 done
 
 # Validate arguments
-if [[ -z "${TARGET_DIR:-}" ]]; then
-    echo "Error: Target directory required" >&2
+if [[ ${#TARGET_DIRS[@]} -eq 0 ]]; then
+    echo "Error: At least one target directory required" >&2
     usage
     exit 1
 fi
 
-if [[ ! -d "$TARGET_DIR" ]]; then
-    echo "Error: Target directory does not exist: $TARGET_DIR" >&2
-    exit 1
-fi
+for dir in "${TARGET_DIRS[@]}"; do
+    if [[ ! -d "$dir" ]]; then
+        echo "Error: Target directory does not exist: $dir" >&2
+        exit 1
+    fi
+done
 
 # Main execution
 log "INFO" "Starting Smart Bulk Media Converter"
-log "INFO" "Target directory: $TARGET_DIR"
-log "INFO" "Configuration: CPU≤${MAX_CPU_PERCENT}%, Memory≤${MAX_MEMORY_PERCENT}%, Load≤${MAX_LOAD_AVERAGE}, Jobs≤${MAX_PARALLEL_JOBS}"
+log "INFO" "Target directories: ${TARGET_DIRS[*]}"
 
 # Load configuration
 load_config
 
+log "INFO" "Configuration: CPU≤${MAX_CPU_PERCENT}%, Memory≤${MAX_MEMORY_PERCENT}%, Load≤${MAX_LOAD_AVERAGE}, Jobs≤${MAX_PARALLEL_JOBS}"
+
 # Build conversion queue
-build_conversion_queue "$TARGET_DIR"
+build_conversion_queue "${TARGET_DIRS[@]}"
+
+# Detect and adopt existing conversions
+detect_existing_conversions
 
 if [[ ${#CONVERSION_QUEUE[@]} -eq 0 ]]; then
     log "INFO" "No files requiring conversion found"
@@ -475,8 +508,10 @@ fi
 
 # Wait for initial safety check
 log "INFO" "Performing initial safety check..."
+log "DEBUG" "PLEX_PRIORITY=$PLEX_PRIORITY, DOWNLOAD_PRIORITY=$DOWNLOAD_PRIORITY"
 while true; do
-    local priority_processes=$(check_priority_processes)
+    priority_processes=$(check_priority_processes)
+    log "DEBUG" "Priority processes detected: $priority_processes"
     if [[ $priority_processes -eq 0 ]]; then
         log "INFO" "System ready for bulk conversion"
         break

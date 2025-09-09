@@ -86,7 +86,40 @@ cd scripts && python3 media_update.py --help
 
 ## Media Processing Automation
 
-### Webhook Configuration:
+### Smart Bulk Converter (Primary System)
+**Intelligent bulk media processing with GPU acceleration and resource management:**
+
+```bash
+# Start smart converter for movies and TV (recommended)
+cd scripts && ./smart-bulk-convert.sh /Storage/media/movies /Storage/media/tv
+
+# Monitor in screen session
+screen -r mediabox-converter
+
+# View real-time logs
+tail -f scripts/smart_bulk_convert_*.log
+```
+
+**Key Features:**
+- **Resource-Aware**: Dynamically scales 1-5 concurrent jobs based on CPU/memory/load
+- **GPU Accelerated**: Automatic VAAPI detection with software fallback
+- **Multi-Directory**: Processes both movies and TV shows simultaneously
+- **Power Outage Recovery**: Auto-starts on boot with cleanup
+- **Orphan Detection**: Adopts existing conversion processes
+- **ZFS Optimized**: Memory-aware calculations for ZFS ARC
+
+**Configuration:** `scripts/smart_convert_config.json`
+```json
+{
+    "max_cpu_percent": 98,
+    "max_parallel_jobs": 5,
+    "max_load_average": 30.0,
+    "plex_priority": true,
+    "download_priority": false
+}
+```
+
+### Webhook Configuration (Legacy):
 Configure webhooks in each *arr application (Settings → Connect → Add → Custom Script):
 - **Path**: `/scripts/import.sh`
 - **Triggers**: ☑ On Import, ☑ On Upgrade
@@ -108,6 +141,14 @@ python3 media_update.py --file "/path/to/file.mkv" --type both
 
 # Audio-only conversion
 python3 media_update.py --dir "/path/to/music" --type audio
+```
+
+### Boot Recovery System:
+**Automatic cleanup and restart after power outages:**
+```bash
+# Cron jobs (auto-installed):
+@reboot sleep 60 && /Storage/docker/mediabox/scripts/cleanup-on-boot.sh
+@reboot sleep 120 && /Storage/docker/mediabox/scripts/start-smart-converter.sh
 ```
 
 ## Configuration & Maintenance
@@ -177,6 +218,8 @@ docker-compose down && docker-compose up -d
 - **Web Interfaces**: Should respond within 1-2 seconds after container initialization
 - **Container Health**: Allow 10-30 seconds for services to fully initialize
 - **Media Conversion**: 1-5x real-time depending on source format and system performance
+- **Smart Converter Queue Building**: 3-5 minutes for 700+ movie directories
+- **GPU Detection**: Hardware acceleration test takes 10-15 seconds
 
 ## Security & Credentials
 

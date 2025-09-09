@@ -1,13 +1,13 @@
 {
-    "max_cpu_percent": 75,
+    "max_cpu_percent": 98,
     "max_memory_percent": 90,
-    "max_load_average": 8.0,
-    "min_available_memory_gb": 4,
+    "max_load_average": 30.0,
+    "min_available_memory_gb": 2,
     "check_interval": 30,
-    "max_parallel_jobs": 4,
+    "max_parallel_jobs": 5,
     "min_parallel_jobs": 1,
     "plex_priority": true,
-    "download_priority": true,
+    "download_priority": false,
     "zfs_aware": true,
     "target_directories": [
         "/Storage/media/movies",
@@ -15,9 +15,7 @@
     ],
     "pause_for_processes": [
         "PlexTranscoder",
-        "plex_ffmpeg",
-        "import.sh",
-        "media_update.py"
+        "plex_ffmpeg"
     ],
     "video_extensions": [
         "mkv", "mp4", "avi", "mov", "wmv", "flv"
