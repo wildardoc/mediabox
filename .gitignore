@@ -104,7 +104,7 @@ $RECYCLE.BIN/
 .env
 scripts/.venv/
 scripts/mediabox_config.json
-scripts/conversion_stats.json      # Smart bulk converter runtime statistics
+conversion_stats.json              # Smart bulk converter runtime statistics (any location)
 
 # Backup and test files
 archive/backup/
