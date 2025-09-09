@@ -71,11 +71,12 @@ wheels/
 .vscode/                        # VS Code
 
 # ------------------------------------------------------------------------------
-# LOG FILES
+# LOG FILES & RUNTIME STATS
 # ------------------------------------------------------------------------------
 *.log
 *.log.*
 media_update_??????????????.log
+conversion_stats.json              # Smart bulk converter runtime statistics
 
 # ------------------------------------------------------------------------------
 # OPERATING SYSTEM FILES

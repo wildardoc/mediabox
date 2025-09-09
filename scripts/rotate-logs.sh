@@ -2,7 +2,7 @@
 set -euo pipefail  # Exit on error, undefined variables, pipe failures
 
 # Log rotation script for mediabox
-# Manages media_update and import log files to prevent disk space issues
+# Manages media_update, import, smart_bulk_convert, and cleanup log files to prevent disk space issues
 # 
 # Retention policy:
 # - Keep recent logs (0-14 days): Uncompressed for easy access
@@ -29,31 +29,52 @@ fi
 
 # 1. Delete logs older than 90 days
 echo "Deleting logs older than 90 days..."
-find . -name "media_update_*.log" -type f -mtime +90 -delete 2>/dev/null && DELETED=$((DELETED + $(find . -name "media_update_*.log" -type f -mtime +90 2>/dev/null | wc -l)))
-find . -name "import_*.log" -type f -mtime +90 -delete 2>/dev/null && DELETED=$((DELETED + $(find . -name "import_*.log" -type f -mtime +90 2>/dev/null | wc -l)))
-find . -name "media_update_*.log.gz" -type f -mtime +90 -delete 2>/dev/null && DELETED=$((DELETED + $(find . -name "media_update_*.log.gz" -type f -mtime +90 2>/dev/null | wc -l)))
-find . -name "import_*.log.gz" -type f -mtime +90 -delete 2>/dev/null && DELETED=$((DELETED + $(find . -name "import_*.log.gz" -type f -mtime +90 2>/dev/null | wc -l)))
 
-# 2. Compress logs older than 14 days (but less than 90 days)
-echo "Compressing logs older than 14 days..."
-find . -name "media_update_*.log" -type f -mtime +14 -mtime -90 | while read -r file; do
-    if [[ -f "$file" && ! -f "$file.gz" ]]; then
-        echo "Compressing: $file"
-        gzip "$file" 2>/dev/null && COMPRESSED=$((COMPRESSED + 1))
+# Process each log type separately for deletion
+for pattern in "media_update_*.log" "import_*.log" "smart_bulk_convert_*.log" "cleanup_conversions_*.log" "media_update_*.log.gz" "import_*.log.gz" "smart_bulk_convert_*.log.gz" "cleanup_conversions_*.log.gz"; do
+    count=$(find . -name "$pattern" -type f -mtime +90 2>/dev/null | wc -l)
+    if [[ $count -gt 0 ]]; then
+        echo "Deleting $count old $pattern files..."
+        find . -name "$pattern" -type f -mtime +90 -delete 2>/dev/null
+        DELETED=$((DELETED + count))
     fi
 done
 
-find . -name "import_*.log" -type f -mtime +14 -mtime -90 | while read -r file; do
-    if [[ -f "$file" && ! -f "$file.gz" ]]; then
-        echo "Compressing: $file"  
-        gzip "$file" 2>/dev/null && COMPRESSED=$((COMPRESSED + 1))
-    fi
+# 2. Compress logs older than 14 days (but less than 90 days)
+echo "Compressing logs older than 14 days..."
+
+# Process each log type separately
+for pattern in "media_update_*.log" "import_*.log" "smart_bulk_convert_*.log" "cleanup_conversions_*.log"; do
+    while IFS= read -r -d '' file; do
+        if [[ -f "$file" && ! -f "$file.gz" ]]; then
+            echo "Compressing: $file"
+            if gzip "$file" 2>/dev/null; then
+                COMPRESSED=$((COMPRESSED + 1))
+            fi
+        fi
+    done < <(find . -name "$pattern" -type f -mtime +14 -mtime -90 -print0 2>/dev/null)
 done
 
 # 3. Clean up any zero-byte logs (often created by failed runs)
 echo "Removing zero-byte log files..."
 find . -name "media_update_*.log" -type f -size 0 -delete 2>/dev/null
 find . -name "import_*.log" -type f -size 0 -delete 2>/dev/null
+find . -name "smart_bulk_convert_*.log" -type f -size 0 -delete 2>/dev/null
+find . -name "cleanup_conversions_*.log" -type f -size 0 -delete 2>/dev/null
+
+# 4. Handle persistent log files (no timestamps) - rotate if larger than 10MB
+echo "Rotating large persistent log files..."
+for logfile in cleanup_downloads.log log-rotation.log; do
+    if [[ -f "$logfile" ]]; then
+        size=$(stat -f%z "$logfile" 2>/dev/null || stat -c%s "$logfile" 2>/dev/null || echo 0)
+        if [[ $size -gt 10485760 ]]; then  # 10MB
+            timestamp=$(date +%Y%m%d_%H%M%S)
+            echo "Rotating large log file: $logfile ($(numfmt --to=iec $size 2>/dev/null || echo "${size} bytes"))"
+            mv "$logfile" "${logfile%.log}_${timestamp}.log"
+            touch "$logfile"  # Create new empty log
+        fi
+    fi
+done
 
 # Calculate total size after cleanup
 if command -v du >/dev/null 2>&1; then
