@@ -111,3 +111,4 @@ archive/backup/
 *.backup*
 test-*.sh
 test-*.py
+conversion_stats.json
