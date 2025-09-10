@@ -729,22 +729,18 @@ def build_ffmpeg_command(input_file, probe=None):
     surround_candidates = []
     eng_subs = []
     forced_subs = []
-    audio_lang_metadata = []
     subtitle_lang_metadata = []
 
     # Find surround sound audio streams and subtitle streams
     subtitle_stream_counter = 0
-    audio_stream_counter = 0
     for stream in probe['streams']:
         if stream['codec_type'] == 'audio':
             idx = stream['index']
             lang = stream.get('tags', {}).get('language', '').lower()
-            if not lang:
-                audio_lang_metadata.extend([f'-metadata:s:a:{audio_stream_counter}', 'language=eng'])
             channels = int(stream.get('channels', 0))
             if channels >= 6:
                 surround_candidates.append((idx, lang))
-            audio_stream_counter += 1
+            # Note: Language metadata is now handled directly in audio mapping section
         elif stream['codec_type'] == 'subtitle':
             idx = stream['index']
             lang = stream.get('tags', {}).get('language', '').lower()
@@ -763,53 +759,90 @@ def build_ffmpeg_command(input_file, probe=None):
                 logging.warning(f"Skipping PGS subtitle stream {idx} for MP4 output: will extract separately.")
                 subtitle_stream_counter += 1
 
-    # Prefer English surround, then unlabeled, else log/print available
+    # Only accept English or unlabeled surround audio streams
     if surround_candidates:
-        # Try to find English surround
+        # Try to find English surround first
         for idx, lang in surround_candidates:
             if lang == 'eng':
                 surround_idx = idx
+                logging.info(f"Selected English surround audio stream {idx}")
                 break
-        # If not found, try to find one with no language label
+        
+        # If not found, try to find unlabeled (will be tagged as English)
         if surround_idx is None:
             for idx, lang in surround_candidates:
-                if not lang:
+                if not lang:  # No language tag - we'll tag it as English
                     surround_idx = idx
+                    logging.info(f"Selected unlabeled surround audio stream {idx} (will tag as English)")
                     break
-        # If still not found, flag and log all available surround streams
+        
+        # If still not found, we don't want non-English surround
         if surround_idx is None:
             msg = (
-                f"No English surround audio found. "
-                f"Available surround streams: {[(idx, lang) for idx, lang in surround_candidates]}"
+                f"No English or unlabeled surround audio found. "
+                f"Available surround streams: {[(idx, lang) for idx, lang in surround_candidates]} "
+                f"Skipping surround audio processing - only English audio is supported."
             )
             print(msg)
             logging.warning(msg)
-            # Optionally, pick the first surround as fallback
-            surround_idx, _ = surround_candidates[0]
+            # DO NOT fall back to non-English audio
 
     # Audio mapping
     audio_maps = []
     audio_labels = []
     filter_complex = []
     if surround_idx is not None:
-        # Map surround channel and label
+        # Determine language tagging: English for both tagged and untagged streams
+        surround_lang = 'eng'  # Always tag as English since we only accept English/unlabeled
+        
+        for stream in probe['streams']:
+            if stream['index'] == surround_idx and stream['codec_type'] == 'audio':
+                original_lang = stream.get('tags', {}).get('language', '').lower()
+                if original_lang == 'eng':
+                    logging.info(f"Surround stream {surround_idx} already tagged as English")
+                elif not original_lang:
+                    logging.info(f"Surround stream {surround_idx} has no language tag - tagging as English")
+                else:
+                    # This shouldn't happen due to our selection logic above, but just in case
+                    logging.warning(f"Surround stream {surround_idx} has language '{original_lang}' - forcing to English")
+                break
+        
+        # Map surround channel and label with English language
         audio_maps += ['-map', f'0:{surround_idx}']
-        audio_labels += ['-metadata:s:a:0', 'title=Surround']
+        audio_labels += ['-metadata:s:a:0', 'title=Surround', '-metadata:s:a:0', f'language={surround_lang}']
         # Create stereo from surround with compression
         filter_complex = [
             '-filter_complex',
             f'[0:{surround_idx}]pan=stereo|c0=c0+c2+c4|c1=c1+c3+c5,acompressor=level_in=1.5:threshold=0.1:ratio=6:attack=20:release=250[aout]'
         ]
         audio_maps += ['-map', '[aout]']
-        audio_labels += ['-metadata:s:a:1', 'title=Stereo (Compressed)']
+        # Generated stereo track gets English language tag
+        audio_labels += ['-metadata:s:a:1', 'title=Stereo (Compressed)', '-metadata:s:a:1', f'language={surround_lang}']
     else:
-        # Fallback: map first audio stream
+        # Fallback: find first English or unlabeled audio stream
+        fallback_found = False
         for stream in probe['streams']:
             if stream['codec_type'] == 'audio':
                 idx = stream['index']
-                audio_maps += ['-map', f'0:{idx}']
-                audio_labels += ['-metadata:s:a:0', 'title=Stereo']
-                break
+                original_lang = stream.get('tags', {}).get('language', '').lower()
+                
+                # Only accept English or unlabeled streams
+                if original_lang == 'eng' or not original_lang:
+                    if original_lang == 'eng':
+                        logging.info(f"Fallback: Using English audio stream {idx}")
+                    else:
+                        logging.info(f"Fallback: Using unlabeled audio stream {idx} (tagging as English)")
+                    
+                    audio_maps += ['-map', f'0:{idx}']
+                    audio_labels += ['-metadata:s:a:0', 'title=Stereo', '-metadata:s:a:0', 'language=eng']
+                    fallback_found = True
+                    break
+                else:
+                    logging.debug(f"Skipping non-English audio stream {idx} (language: {original_lang})")
+        
+        if not fallback_found:
+            logging.warning("No English or unlabeled audio streams found - no audio will be processed")
+            print("Warning: No English or unlabeled audio streams found")
 
     # Subtitle mapping (forced and English, only text-based)
     subtitle_maps = []
@@ -838,6 +871,9 @@ def build_ffmpeg_command(input_file, probe=None):
         video_args = ['-c:v', 'libx264', '-crf', '23', '-preset', 'fast']
         logging.info("Using basic software encoding")
 
+    # Check if we have any audio to process
+    has_audio = bool(audio_maps)
+    
     # Build ffmpeg args
     args = [
         '-map', '0:v:0',  # First video stream
@@ -846,14 +882,13 @@ def build_ffmpeg_command(input_file, probe=None):
         *audio_labels,
         *subtitle_maps,
         *subtitle_codecs,
-        *audio_lang_metadata,
         *subtitle_lang_metadata,
         *video_args,
         '-c:a', 'aac',
         '-y',  # Overwrite output
         '-movflags', 'faststart'
     ]
-    return args
+    return args, has_audio
 
 def build_audio_ffmpeg_command(input_file, probe=None):
     """
@@ -987,9 +1022,15 @@ def transcode_file(input_file):
     
     # Build appropriate command based on file type
     if is_video:
-        args = build_ffmpeg_command(input_file, probe)
+        args, has_audio = build_ffmpeg_command(input_file, probe)
+        # Skip conversion if no audio streams will be processed
+        if not has_audio:
+            logging.warning(f"Skipping {input_file}: No English or unlabeled audio streams found")
+            print(f"Skipping {input_file}: No English or unlabeled audio streams found")
+            return
     else:  # is_audio
         args = build_audio_ffmpeg_command(input_file, probe)
+        has_audio = True  # Audio files always have audio to process
     
     cmd = ['ffmpeg', '-i', input_file] + args + [output_file]
     logging.info(f"Transcoding: {input_file} -> {final_output_file}")
