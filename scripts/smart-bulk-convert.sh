@@ -264,8 +264,12 @@ build_conversion_queue() {
     local target_dirs=("$@")
     log "INFO" "Building conversion queue for directories: ${target_dirs[*]}"
     
+    # Initialize or update stats at start of scanning
+    update_stats
+    
     # Video extensions that media_update.py processes
     local video_extensions=("mkv" "mp4" "avi" "mov" "wmv" "flv")
+    local files_scanned=0
     
     # Find all video files that need conversion in all target directories
     for target_dir in "${target_dirs[@]}"; do
@@ -281,8 +285,18 @@ build_conversion_queue() {
                 if needs_conversion "$file"; then
                     CONVERSION_QUEUE+=("$file")
                 fi
+                
+                # Update stats periodically during scanning (every 100 files)
+                ((files_scanned++))
+                if (( files_scanned % 100 == 0 )); then
+                    update_stats
+                fi
             done < <(find "$target_dir" -name "*.${ext}" -type f -print0)
         done
+        
+        # Update stats after each directory completes
+        log "INFO" "Completed scanning: $target_dir (${#CONVERSION_QUEUE[@]} files queued so far)"
+        update_stats
     done
     
     log "INFO" "Found ${#CONVERSION_QUEUE[@]} files requiring conversion across all directories"
@@ -549,6 +563,9 @@ log "INFO" "Target directories: ${TARGET_DIRS[*]}"
 load_config
 
 log "INFO" "Configuration: CPU≤${MAX_CPU_PERCENT}%, Memory≤${MAX_MEMORY_PERCENT}%, Load≤${MAX_LOAD_AVERAGE}, Jobs≤${MAX_PARALLEL_JOBS}"
+
+# Initialize stats tracking immediately after config load
+update_stats
 
 # Build conversion queue
 build_conversion_queue "${TARGET_DIRS[@]}"
