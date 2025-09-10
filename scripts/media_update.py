@@ -983,13 +983,39 @@ def transcode_file(input_file):
             # If we have surround but no stereo, we need to transcode to add compressed stereo
             needs_stereo_track = has_surround and not has_stereo
             
-            if vcodec == 'h264' and all_aac and input_file.lower().endswith('.mp4') and not needs_stereo_track:
-                print(f"Skipping: {input_file} is already H.264/AAC MP4.")
-                logging.info(f"Skipping: {input_file} is already H.264/AAC MP4.")
+            # Check if audio metadata needs fixing
+            needs_audio_metadata_fix = False
+            has_non_english_audio = False
+            
+            for stream in probe['streams']:
+                if stream['codec_type'] == 'audio':
+                    lang = stream.get('tags', {}).get('language', '').lower()
+                    
+                    # Check for non-English audio that should be removed
+                    if lang and lang != 'eng':
+                        has_non_english_audio = True
+                        logging.info(f"Found non-English audio stream (language: {lang}) that needs removal")
+                    
+                    # Check for missing language tags on English-compatible streams
+                    elif not lang:  # Unlabeled stream that should be tagged as English
+                        needs_audio_metadata_fix = True
+                        logging.info(f"Found unlabeled audio stream that needs English language tag")
+            
+            # Enhanced skip logic - only skip if format AND metadata are perfect
+            if (vcodec == 'h264' and all_aac and input_file.lower().endswith('.mp4') and 
+                not needs_stereo_track and not needs_audio_metadata_fix and not has_non_english_audio):
+                print(f"Skipping: {input_file} is already H.264/AAC MP4 with proper audio metadata.")
+                logging.info(f"Skipping: {input_file} is already H.264/AAC MP4 with proper audio metadata.")
                 return
             elif needs_stereo_track:
                 print(f"Transcoding: {input_file} has surround sound but missing stereo track.")
                 logging.info(f"Transcoding: {input_file} has surround sound but missing stereo track.")
+            elif needs_audio_metadata_fix:
+                print(f"Transcoding: {input_file} needs audio language metadata fixes.")
+                logging.info(f"Transcoding: {input_file} needs audio language metadata fixes.")
+            elif has_non_english_audio:
+                print(f"Transcoding: {input_file} has non-English audio tracks to remove.")
+                logging.info(f"Transcoding: {input_file} has non-English audio tracks to remove.")
         
         else:  # is_audio
             # Audio file logic
