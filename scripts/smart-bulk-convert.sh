@@ -181,18 +181,18 @@ calculate_optimal_jobs() {
     local priority_processes=$(check_priority_processes)
     local optimal_jobs=$MAX_PARALLEL_JOBS
     
-    log "DEBUG" "Stats: CPU=${cpu_usage}%,Mem=${mem_percent}%,Load=${load_avg},RAM=${available_gb}GB,Prio=${priority_processes}"
+    log "DEBUG" "Stats: CPU=${cpu_usage}%,Mem=${mem_percent}%,Load=${load_avg},RAM=${available_gb}GB,Prio=${priority_processes}" >&2
     
     # Reduce jobs if high-priority processes are running
     if [[ $priority_processes -gt 0 ]]; then
         optimal_jobs=$(( optimal_jobs / 2 ))
-        log "INFO" "High-priority processes detected, reducing parallel jobs to $optimal_jobs"
+        log "INFO" "High-priority processes detected, reducing parallel jobs to $optimal_jobs" >&2
     fi
     
     # Check resource thresholds - ensure safe arithmetic operations
     if [[ $cpu_usage -gt $MAX_CPU_PERCENT ]]; then
         optimal_jobs=$(( optimal_jobs - 1 ))
-        log "INFO" "CPU usage high (${cpu_usage}%), reducing jobs to $optimal_jobs"
+        log "INFO" "CPU usage high (${cpu_usage}%), reducing jobs to $optimal_jobs" >&2
     fi
     
     # ZFS-aware memory check - use available memory instead of usage percentage  
@@ -213,10 +213,10 @@ calculate_optimal_jobs() {
     
     if [[ $memory_ok -eq 0 ]]; then
         optimal_jobs=0
-        log "WARN" "Low available memory (${available_gb}GB < ${MIN_AVAILABLE_MEMORY_GB}GB), pausing conversions"
+        log "WARN" "Low available memory (${available_gb}GB < ${MIN_AVAILABLE_MEMORY_GB}GB), pausing conversions" >&2
     elif [[ $mem_percent -gt $MAX_MEMORY_PERCENT ]]; then
         optimal_jobs=$(( optimal_jobs - 1 ))
-        log "INFO" "Memory pressure high (${mem_percent}%), reducing jobs to $optimal_jobs"
+        log "INFO" "Memory pressure high (${mem_percent}%), reducing jobs to $optimal_jobs" >&2
     fi
     
     # Load average check with fallback
@@ -238,7 +238,7 @@ calculate_optimal_jobs() {
     
     if [[ $load_high -eq 1 ]]; then
         optimal_jobs=$(( optimal_jobs - 1 ))
-        log "INFO" "Load average high (${load_avg}), reducing jobs to $optimal_jobs"
+        log "INFO" "Load average high (${load_avg}), reducing jobs to $optimal_jobs" >&2
     fi
     
     # Ensure we stay within bounds
