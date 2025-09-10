@@ -134,16 +134,27 @@ check_priority_processes() {
     
     # Check for Plex transcoding
     if [[ "$PLEX_PRIORITY" == "true" ]]; then
-        local plex_processes=$(pgrep -f "PlexTranscoder\|plex.*ffmpeg" | wc -l)
+        local plex_processes=$(pgrep -f "PlexTranscoder\|plex.*ffmpeg" 2>/dev/null | wc -l 2>/dev/null || echo "0")
+        # Ensure we have a valid number
+        if [[ ! "$plex_processes" =~ ^[0-9]+$ ]]; then
+            plex_processes=0
+        fi
         high_priority_count=$((high_priority_count + plex_processes))
+        log "DEBUG" "Plex processes detected: $plex_processes" >&2
     fi
     
     # Check for download/import processes  
     if [[ "$DOWNLOAD_PRIORITY" == "true" ]]; then
-        local import_processes=$(pgrep -f "import\.sh\|media_update\.py" | wc -l)
+        local import_processes=$(pgrep -f "import\.sh\|media_update\.py" 2>/dev/null | wc -l 2>/dev/null || echo "0")
+        # Ensure we have a valid number
+        if [[ ! "$import_processes" =~ ^[0-9]+$ ]]; then
+            import_processes=0
+        fi
         high_priority_count=$((high_priority_count + import_processes))
+        log "DEBUG" "Import processes detected: $import_processes" >&2
     fi
     
+    log "DEBUG" "Total priority processes: $high_priority_count" >&2
     echo $high_priority_count
 }
 
@@ -571,7 +582,11 @@ update_stats
 build_conversion_queue "${TARGET_DIRS[@]}"
 
 # Detect and adopt existing conversions
-detect_existing_conversions
+log "DEBUG" "Starting detect_existing_conversions..."
+if ! detect_existing_conversions; then
+    log "ERROR" "Failed to detect existing conversions, continuing anyway..."
+fi
+log "DEBUG" "Completed detect_existing_conversions"
 
 if [[ ${#CONVERSION_QUEUE[@]} -eq 0 ]]; then
     log "INFO" "No files requiring conversion found"
@@ -581,8 +596,30 @@ fi
 # Wait for initial safety check
 log "INFO" "Performing initial safety check..."
 log "DEBUG" "PLEX_PRIORITY=$PLEX_PRIORITY, DOWNLOAD_PRIORITY=$DOWNLOAD_PRIORITY"
+
+# Test the check_priority_processes function first
+log "DEBUG" "Testing check_priority_processes function..."
+if ! priority_processes=$(check_priority_processes 2>&1); then
+    log "ERROR" "check_priority_processes failed: $priority_processes"
+    log "WARN" "Defaulting to 0 priority processes"
+    priority_processes=0
+fi
+log "DEBUG" "Initial priority processes: $priority_processes"
+
+# Test the calculate_optimal_jobs function
+log "DEBUG" "Testing calculate_optimal_jobs function..."
+if ! optimal_jobs=$(calculate_optimal_jobs 2>&1); then
+    log "ERROR" "calculate_optimal_jobs failed: $optimal_jobs"
+    log "WARN" "Defaulting to 1 job"
+    optimal_jobs=1
+fi
+log "DEBUG" "Initial optimal jobs: $optimal_jobs"
+
 while true; do
-    priority_processes=$(check_priority_processes)
+    if ! priority_processes=$(check_priority_processes 2>&1); then
+        log "ERROR" "check_priority_processes failed in loop: $priority_processes"
+        priority_processes=0
+    fi
     log "DEBUG" "Priority processes detected: $priority_processes"
     if [[ $priority_processes -eq 0 ]]; then
         log "INFO" "System ready for bulk conversion"
@@ -595,6 +632,9 @@ done
 
 # Start main processing loop
 log "INFO" "Beginning smart bulk conversion of ${#CONVERSION_QUEUE[@]} files"
-main_processing_loop
+if ! main_processing_loop; then
+    log "ERROR" "Main processing loop failed, exiting..."
+    exit 1
+fi
 
 log "INFO" "Smart bulk conversion completed successfully!"
