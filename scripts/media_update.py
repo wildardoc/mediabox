@@ -421,8 +421,24 @@ def convert_host_path_to_plex_path(container_path):
     Returns:
         str: Corresponding path as Plex container sees it
     """
-    # Simple container-to-container path mapping
-    if container_path.startswith('/tv/'):
+    # Handle both container and host path mappings
+    
+    # Host path mappings (when running on host system)
+    if container_path.startswith('/Storage/media/tv/'):
+        plex_path = container_path.replace('/Storage/media/tv/', '/data/tv/', 1)
+        logging.debug(f"Host to Plex path: {container_path} → {plex_path}")
+        return plex_path
+    elif container_path.startswith('/Storage/media/movies/'):
+        plex_path = container_path.replace('/Storage/media/movies/', '/data/movies/', 1)
+        logging.debug(f"Host to Plex path: {container_path} → {plex_path}")
+        return plex_path
+    elif container_path.startswith('/Storage/media/music/'):
+        plex_path = container_path.replace('/Storage/media/music/', '/data/music/', 1)
+        logging.debug(f"Host to Plex path: {container_path} → {plex_path}")
+        return plex_path
+    
+    # Container-to-container path mapping (when running in containers)
+    elif container_path.startswith('/tv/'):
         plex_path = container_path.replace('/tv/', '/data/tv/', 1)
         logging.debug(f"Container to Plex path: {container_path} → {plex_path}")
         return plex_path
@@ -436,7 +452,7 @@ def convert_host_path_to_plex_path(container_path):
         return plex_path
     else:
         # If no mapping found, return original path
-        logging.debug(f"No container path mapping needed for: {container_path}")
+        logging.debug(f"No path mapping needed for: {container_path}")
         return container_path
 
 # Global list to track processed files for batch notifications
