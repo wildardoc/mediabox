@@ -4,7 +4,7 @@
 # Intelligently manages bulk media conversion based on system resources
 # Scales up/down conversion processes based on CPU, memory, and active processes
 
-set -euo pipefail
+set -uo pipefail
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,7 +38,8 @@ log() {
     shift
     local message="$*"
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
+    echo "[$timestamp] [$level] $message" >&2
+    echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
 }
 
 # Load configuration
@@ -131,6 +132,7 @@ get_system_stats() {
 # Check for high-priority processes
 check_priority_processes() {
     local high_priority_count=0
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     
     # Check for Plex transcoding
     if [[ "$PLEX_PRIORITY" == "true" ]]; then
@@ -140,7 +142,7 @@ check_priority_processes() {
             plex_processes=0
         fi
         high_priority_count=$((high_priority_count + plex_processes))
-        log "DEBUG" "Plex processes detected: $plex_processes" >&2
+        echo "[$timestamp] [DEBUG] Plex processes detected: $plex_processes" >> "$LOG_FILE"
     fi
     
     # Check for download/import processes  
@@ -151,10 +153,10 @@ check_priority_processes() {
             import_processes=0
         fi
         high_priority_count=$((high_priority_count + import_processes))
-        log "DEBUG" "Import processes detected: $import_processes" >&2
+        echo "[$timestamp] [DEBUG] Import processes detected: $import_processes" >> "$LOG_FILE"
     fi
     
-    log "DEBUG" "Total priority processes: $high_priority_count" >&2
+    echo "[$timestamp] [DEBUG] Total priority processes: $high_priority_count" >> "$LOG_FILE"
     echo $high_priority_count
 }
 
@@ -180,13 +182,14 @@ calculate_optimal_jobs() {
     
     local priority_processes=$(check_priority_processes)
     local optimal_jobs=$MAX_PARALLEL_JOBS
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     
-    log "DEBUG" "Stats: CPU=${cpu_usage}%,Mem=${mem_percent}%,Load=${load_avg},RAM=${available_gb}GB,Prio=${priority_processes}" >&2
+    echo "[$timestamp] [DEBUG] Stats: CPU=${cpu_usage}%,Mem=${mem_percent}%,Load=${load_avg},RAM=${available_gb}GB,Prio=${priority_processes}" >> "$LOG_FILE"
     
     # Reduce jobs if high-priority processes are running
     if [[ $priority_processes -gt 0 ]]; then
         optimal_jobs=$(( optimal_jobs / 2 ))
-        log "INFO" "High-priority processes detected, reducing parallel jobs to $optimal_jobs" >&2
+        echo "[$timestamp] [INFO] High-priority processes detected, reducing parallel jobs to $optimal_jobs" >> "$LOG_FILE"
     fi
     
     # Check resource thresholds - ensure safe arithmetic operations
@@ -290,27 +293,49 @@ build_conversion_queue() {
         fi
         
         log "INFO" "Scanning directory: $target_dir"
-        for ext in "${video_extensions[@]}"; do
-            while IFS= read -r -d '' file; do
-                # Check if this file needs conversion based on media_update.py logic
-                if needs_conversion "$file"; then
-                    CONVERSION_QUEUE+=("$file")
+        
+        # Use a simpler approach - find all video files at once
+        echo "DEBUG: Starting find command for video files..."
+        local temp_files=()
+        while IFS= read -r -d '' file; do
+            temp_files+=("$file")
+        done < <(find "$target_dir" -type f \( -name "*.mkv" -o -name "*.mp4" -o -name "*.avi" -o -name "*.mov" -o -name "*.wmv" -o -name "*.flv" \) -print0 2>/dev/null)
+        
+        echo "DEBUG: Found ${#temp_files[@]} total video files"
+        
+        # Process each file
+        for file in "${temp_files[@]}"; do
+            # Check if this file needs conversion based on media_update.py logic
+            if needs_conversion "$file" 2>/dev/null; then
+                CONVERSION_QUEUE+=("$file")
+                echo "DEBUG: Added to queue: $(basename "$file")"
+            fi
+            
+            # Update stats periodically during scanning (every 100 files)
+            ((files_scanned++))
+            if (( files_scanned % 100 == 0 )); then
+                echo "DEBUG: Scanned $files_scanned files, queue size: ${#CONVERSION_QUEUE[@]}"
+                echo "DEBUG: About to call update_stats..."
+                if ! update_stats; then
+                    echo "DEBUG: update_stats failed"
                 fi
-                
-                # Update stats periodically during scanning (every 100 files)
-                ((files_scanned++))
-                if (( files_scanned % 100 == 0 )); then
-                    update_stats
-                fi
-            done < <(find "$target_dir" -name "*.${ext}" -type f -print0)
+                echo "DEBUG: update_stats completed"
+            fi
         done
+        
+        echo "DEBUG: Completed processing all ${#temp_files[@]} files in directory"
         
         # Update stats after each directory completes
         log "INFO" "Completed scanning: $target_dir (${#CONVERSION_QUEUE[@]} files queued so far)"
-        update_stats
+        echo "DEBUG: About to call final update_stats..."
+        if ! update_stats; then
+            echo "DEBUG: Final update_stats failed"
+        fi
+        echo "DEBUG: Final update_stats completed"
     done
     
     log "INFO" "Found ${#CONVERSION_QUEUE[@]} files requiring conversion across all directories"
+    echo "DEBUG: Queue size = ${#CONVERSION_QUEUE[@]}" 
 }
 
 # Check if a file needs conversion (simplified version of media_update.py logic)
@@ -318,31 +343,24 @@ needs_conversion() {
     local file="$1"
     
     # Skip if file doesn't exist
-    [[ ! -f "$file" ]] && return 1
-    
-    # Skip if it's already an optimized MP4 with proper audio
-    if [[ "$file" =~ \.mp4$ ]]; then
-        # Use ffprobe to check if it already has proper H.264 + AAC
-        local probe_result=$(ffprobe -v quiet -print_format json -show_streams "$file" 2>/dev/null)
-        if [[ -n "$probe_result" ]]; then
-            # Check for H.264 video and AAC audio (basic check)
-            if echo "$probe_result" | grep -q '"codec_name": "h264"' && echo "$probe_result" | grep -q '"codec_name": "aac"'; then
-                # File might already be optimized, but let media_update.py make final decision
-                # For now, assume it needs checking unless it's very recent
-                local file_age_days=$(( ($(date +%s) - $(stat -c %Y "$file")) / 86400 ))
-                [[ $file_age_days -lt 7 ]] && return 1  # Skip very recent MP4s
-            fi
-        fi
+    if [[ ! -f "$file" ]]; then
+        echo "DEBUG: File not found: $file" >&2
+        return 1
     fi
     
     # For MKV and other formats, check if corresponding MP4 exists
     if [[ ! "$file" =~ \.mp4$ ]]; then
         local base_name="${file%.*}"
         local mp4_file="${base_name}.mp4"
-        [[ -f "$mp4_file" ]] && return 1  # Skip if MP4 version exists
+        if [[ -f "$mp4_file" ]]; then
+            echo "DEBUG: MP4 version exists, skipping: $(basename "$file")" >&2
+            return 1  # Skip if MP4 version exists
+        fi
     fi
     
-    return 0  # Needs conversion
+    # For MP4 files, let media_update.py make the detailed decision
+    # The enhanced logic in media_update.py will check format AND metadata
+    return 0  # Needs conversion/checking
 }
 
 # Start a conversion job
@@ -588,10 +606,13 @@ if ! detect_existing_conversions; then
 fi
 log "DEBUG" "Completed detect_existing_conversions"
 
+echo "DEBUG: Before check - Queue size = ${#CONVERSION_QUEUE[@]}"
 if [[ ${#CONVERSION_QUEUE[@]} -eq 0 ]]; then
     log "INFO" "No files requiring conversion found"
+    echo "DEBUG: Exiting because queue is empty"
     exit 0
 fi
+echo "DEBUG: Queue has files, continuing..."
 
 # Wait for initial safety check
 log "INFO" "Performing initial safety check..."
@@ -599,7 +620,7 @@ log "DEBUG" "PLEX_PRIORITY=$PLEX_PRIORITY, DOWNLOAD_PRIORITY=$DOWNLOAD_PRIORITY"
 
 # Test the check_priority_processes function first
 log "DEBUG" "Testing check_priority_processes function..."
-if ! priority_processes=$(check_priority_processes 2>&1); then
+if ! priority_processes=$(check_priority_processes); then
     log "ERROR" "check_priority_processes failed: $priority_processes"
     log "WARN" "Defaulting to 0 priority processes"
     priority_processes=0
@@ -608,7 +629,7 @@ log "DEBUG" "Initial priority processes: $priority_processes"
 
 # Test the calculate_optimal_jobs function
 log "DEBUG" "Testing calculate_optimal_jobs function..."
-if ! optimal_jobs=$(calculate_optimal_jobs 2>&1); then
+if ! optimal_jobs=$(calculate_optimal_jobs); then
     log "ERROR" "calculate_optimal_jobs failed: $optimal_jobs"
     log "WARN" "Defaulting to 1 job"
     optimal_jobs=1
