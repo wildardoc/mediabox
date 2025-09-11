@@ -74,6 +74,7 @@ Optional .env settings for enhanced Plex integration:
 • PLEX_VALIDATE_MEDIA=true/false - Verify successful processing (default: true)
 • PLEX_DUPLICATE_DETECTION=true/false - Skip already-processed files (default: true)  
 • PLEX_DETAILED_LOGGING=true/false - Enhanced logging with analytics (default: true)
+• PLEX_FORCE_THOROUGH_REFRESH=true/false - Force thorough metadata refresh for multi-audio files (default: true)
 
 REQUIREMENTS:
 ------------
@@ -478,8 +479,15 @@ def detect_library_type(path):
             return 'artist'
         return None
 
-def notify_plex_library_update(file_path, max_retries=2, retry_delay=5):
-    """Enhanced Plex notification with smart scanning and validation."""
+def notify_plex_library_update(file_path, max_retries=2, retry_delay=5, force_refresh=False):
+    """Enhanced Plex notification with smart scanning, validation, and thorough refresh support.
+    
+    Args:
+        file_path: Path to the media file
+        max_retries: Number of retry attempts
+        retry_delay: Delay between retries
+        force_refresh: If True, forces thorough metadata refresh for audio stream changes
+    """
     
     # Configuration loading
     plex_url = os.getenv('PLEX_URL', 'http://localhost:32400')
@@ -571,8 +579,38 @@ def notify_plex_library_update(file_path, max_retries=2, retry_delay=5):
                 logging.warning(f"   Expected library type: {expected_library_type}")
                 return False
             
-            # Perform the scan
-            if smart_scanning:
+            # Enhanced scanning logic with thorough refresh support
+            if force_refresh:
+                logging.info(f"🔄 Force refresh enabled - performing thorough metadata refresh")
+                try:
+                    # Try to find the specific media item for targeted refresh
+                    file_dir = os.path.dirname(plex_file_path)
+                    filename_without_ext = os.path.splitext(os.path.basename(plex_file_path))[0]
+                    
+                    # Search for the specific media item
+                    search_results = matched_section.search(filename_without_ext)
+                    if search_results:
+                        media_item = search_results[0]
+                        logging.info(f"🎯 Found specific media item: {media_item.title}")
+                        
+                        # Force thorough metadata refresh on the specific item
+                        media_item.refresh()
+                        logging.info(f"🔄 Triggered metadata refresh for: {media_item.title}")
+                        
+                        # Also update the directory to catch file changes
+                        matched_section.update(path=file_dir)
+                        logging.info(f"📁 Updated directory: {file_dir}")
+                    else:
+                        logging.info(f"🔍 Media item not found in search, using directory refresh")
+                        matched_section.update(path=file_dir)
+                        
+                except Exception as refresh_error:
+                    logging.warning(f"⚠️ Specific item refresh failed: {refresh_error}")
+                    logging.info(f"🔄 Falling back to directory refresh")
+                    file_dir = os.path.dirname(plex_file_path)
+                    matched_section.update(path=file_dir)
+                    
+            elif smart_scanning:
                 file_dir = os.path.dirname(plex_file_path)
                 logging.info(f"🎯 Smart scanning directory: {file_dir}")
                 matched_section.update(path=file_dir)
@@ -580,7 +618,8 @@ def notify_plex_library_update(file_path, max_retries=2, retry_delay=5):
                 logging.info(f"📚 Full library scan: {matched_section.title}")
                 matched_section.update()
             
-            logging.info(f"✅ Successfully triggered Plex scan for {matched_section.title} ({matched_section.type})")
+            refresh_type = "thorough refresh" if force_refresh else ("smart scan" if smart_scanning else "full scan")
+            logging.info(f"✅ Successfully triggered Plex {refresh_type} for {matched_section.title} ({matched_section.type})")
             return True
             
         except ImportError as e:
@@ -603,10 +642,49 @@ def notify_plex_library_update(file_path, max_retries=2, retry_delay=5):
     
     return False
 
+def should_force_refresh_for_section(files):
+    """
+    Determine if files in a section likely need thorough Plex refresh.
+    This checks for indicators that multi-channel audio processing occurred.
+    
+    Args:
+        files: List of processed file paths
+        
+    Returns:
+        bool: True if thorough refresh should be forced
+    """
+    import subprocess
+    
+    for file_path in files[:3]:  # Check up to 3 files to avoid excessive probing
+        try:
+            # Quick probe to check for multiple audio streams
+            result = subprocess.run([
+                'ffprobe', '-v', 'quiet', '-select_streams', 'a', 
+                '-show_entries', 'stream=channels', '-of', 'csv=p=0',
+                file_path
+            ], capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                audio_channels = result.stdout.strip().split('\n')
+                # If we have multiple audio streams or channels suggesting 5.1 + stereo
+                if len(audio_channels) >= 2:
+                    channel_counts = [int(ch) for ch in audio_channels if ch.isdigit()]
+                    # Look for pattern of surround (5.1 = 6ch) + stereo (2ch)
+                    if len(channel_counts) >= 2 and (6 in channel_counts or 8 in channel_counts):
+                        logging.info(f"🔄 Detected multi-channel setup in {os.path.basename(file_path)} - forcing thorough refresh")
+                        return True
+                        
+        except Exception as e:
+            logging.debug(f"Could not probe {file_path} for audio streams: {e}")
+            continue
+    
+    return False
+
 def batch_notify_plex():
     """
-    Perform batch Plex notifications for all processed files.
-    This reduces the number of individual scan requests to Plex.
+    Perform batch Plex notifications for all processed files with smart refresh detection.
+    This reduces the number of individual scan requests to Plex while ensuring
+    thorough refreshes for files with multiple audio streams.
     
     Returns:
         bool: True if any notifications were successful, False otherwise
@@ -620,6 +698,7 @@ def batch_notify_plex():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     env_file = os.path.join(script_dir, '..', '.env')
     enable_notifications = True  # Default to enabled
+    force_thorough_refresh = os.getenv('PLEX_FORCE_THOROUGH_REFRESH', 'true').lower() == 'true'
     
     if os.path.exists(env_file):
         with open(env_file, 'r') as f:
@@ -627,6 +706,9 @@ def batch_notify_plex():
                 if line.startswith('ENABLE_PLEX_NOTIFICATIONS='):
                     enable_value = line.split('=', 1)[1].strip().lower()
                     enable_notifications = enable_value in ('true', 'yes', '1', 'on')
+                elif line.startswith('PLEX_FORCE_THOROUGH_REFRESH='):
+                    refresh_value = line.split('=', 1)[1].strip().lower()
+                    force_thorough_refresh = refresh_value in ('true', 'yes', '1', 'on')
                     break
     
     if not enable_notifications:
@@ -660,8 +742,13 @@ def batch_notify_plex():
         if files:
             # Pick one representative file to trigger the section scan
             representative_file = files[0]
-            if notify_plex_library_update(representative_file, max_retries=1):
-                logging.info(f"Successfully triggered {section_type} library scan for {len(files)} files")
+            
+            # Check if any files in this section likely have multiple audio streams
+            force_refresh = force_thorough_refresh and should_force_refresh_for_section(files)
+            
+            if notify_plex_library_update(representative_file, max_retries=1, force_refresh=force_refresh):
+                refresh_type = "thorough refresh" if force_refresh else "standard scan"
+                logging.info(f"Successfully triggered {section_type} {refresh_type} for {len(files)} files")
                 success = True
             else:
                 logging.warning(f"Failed to trigger {section_type} library scan for {len(files)} files")
@@ -1183,10 +1270,10 @@ def transcode_file(input_file):
                         logging.info(f"Found unlabeled audio stream that needs English language tag")
             
             # Enhanced skip logic - only skip if format AND metadata are perfect
-            if (vcodec == 'h264' and all_aac and input_file.lower().endswith('.mp4') and 
+            if (vcodec == 'h264' and all_aac and input_file.lower().endswith(('.mp4', '.mkv')) and 
                 not needs_stereo_track and not needs_audio_metadata_fix and not has_non_english_audio):
-                print(f"Skipping: {input_file} is already H.264/AAC MP4 with proper audio metadata.")
-                logging.info(f"Skipping: {input_file} is already H.264/AAC MP4 with proper audio metadata.")
+                print(f"Skipping: {input_file} is already H.264/AAC with proper audio metadata.")
+                logging.info(f"Skipping: {input_file} is already H.264/AAC with proper audio metadata.")
                 return
             elif needs_stereo_track:
                 print(f"Transcoding: {input_file} has surround sound but missing stereo track.")
