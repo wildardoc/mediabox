@@ -506,7 +506,7 @@ def notify_plex_library_update(file_path, max_retries=2, retry_delay=5):
         try:
             # Import PlexAPI components inside try block to avoid scoping issues
             from plexapi.server import PlexServer
-            from plexapi.exceptions import PlexServerError, Unauthorized, BadRequest
+            from plexapi.exceptions import PlexApiException, Unauthorized, BadRequest
             
             logging.info(f"🔌 Connecting to Plex server: {plex_url}")
             plex = PlexServer(plex_url, plex_token, timeout=15)
