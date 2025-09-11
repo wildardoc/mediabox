@@ -809,6 +809,7 @@ deactivate
 cat > "$SCRIPTS_DIR/mediabox_config.json" <<EOF
 {
   "venv_path": "$VENV_DIR",
+  "env_file": "$INSTALL_DIR/.env",
   "download_dirs": ["$dldirectory/completed", "$dldirectory/incomplete"],
   "library_dirs": {
     "tv": "$tvdirectory",

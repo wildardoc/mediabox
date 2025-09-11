@@ -95,8 +95,13 @@ from pathlib import Path
 
 def load_env_file():
     """Load environment variables from .env file if it exists."""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    env_file = os.path.join(script_dir, '..', '.env')
+    # Use env_file path from config if available, otherwise fall back to default
+    try:
+        env_file = config.get("env_file", os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
+    except NameError:
+        # Fallback if config not loaded yet
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        env_file = os.path.join(script_dir, '..', '.env')
     
     if os.path.exists(env_file):
         try:
@@ -754,8 +759,7 @@ def batch_notify_plex():
         return True
     
     # Check if notifications are enabled
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    env_file = os.path.join(script_dir, '..', '.env')
+    env_file = config.get("env_file", os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
     enable_notifications = True  # Default to enabled
     force_thorough_refresh = os.getenv('PLEX_FORCE_THOROUGH_REFRESH', 'true').lower() == 'true'
     
