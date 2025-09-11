@@ -583,32 +583,91 @@ def notify_plex_library_update(file_path, max_retries=2, retry_delay=5, force_re
             if force_refresh:
                 logging.info(f"🔄 Force refresh enabled - performing thorough metadata refresh")
                 try:
-                    # Try to find the specific media item for targeted refresh
                     file_dir = os.path.dirname(plex_file_path)
                     filename_without_ext = os.path.splitext(os.path.basename(plex_file_path))[0]
                     
-                    # Search for the specific media item
-                    search_results = matched_section.search(filename_without_ext)
-                    if search_results:
-                        media_item = search_results[0]
-                        logging.info(f"🎯 Found specific media item: {media_item.title}")
+                    # Enhanced search logic for different media types
+                    media_item = None
+                    
+                    if expected_library_type == 'show':
+                        # For TV shows, try multiple search strategies
+                        # 1. Search by show name (extract from path or filename)
+                        show_name = None
+                        path_parts = plex_file_path.split('/')
+                        for part in path_parts:
+                            if part and not part.startswith('Season'):
+                                show_name = part
+                                break
                         
-                        # Force thorough metadata refresh on the specific item
+                        if show_name:
+                            logging.info(f"🔍 Searching for TV show: {show_name}")
+                            show_results = matched_section.search(show_name)
+                            if show_results:
+                                show = show_results[0]
+                                logging.info(f"📺 Found show: {show.title}")
+                                
+                                # Search for specific episode within the show
+                                try:
+                                    # Extract season/episode info from filename
+                                    import re
+                                    episode_match = re.search(r'S(\d+)E(\d+)', filename_without_ext, re.IGNORECASE)
+                                    if episode_match:
+                                        season_num = int(episode_match.group(1))
+                                        episode_num = int(episode_match.group(2))
+                                        
+                                        # Try to find the specific episode
+                                        for season in show.seasons():
+                                            if season.seasonNumber == season_num:
+                                                for episode in season.episodes():
+                                                    if episode.episodeNumber == episode_num:
+                                                        media_item = episode
+                                                        logging.info(f"🎯 Found specific episode: {episode.title}")
+                                                        break
+                                                break
+                                except Exception as e:
+                                    logging.debug(f"Episode search failed: {e}")
+                                
+                                # If episode not found, refresh the show
+                                if not media_item:
+                                    media_item = show
+                                    logging.info(f"📺 Using show for refresh: {show.title}")
+                    else:
+                        # For movies and other media, use filename search
+                        search_results = matched_section.search(filename_without_ext)
+                        if search_results:
+                            media_item = search_results[0]
+                            logging.info(f"🎯 Found specific media item: {media_item.title}")
+                    
+                    # Perform thorough refresh if item found
+                    if media_item:
+                        # Multiple refresh approaches for maximum effectiveness
                         media_item.refresh()
                         logging.info(f"🔄 Triggered metadata refresh for: {media_item.title}")
                         
-                        # Also update the directory to catch file changes
-                        matched_section.update(path=file_dir)
-                        logging.info(f"📁 Updated directory: {file_dir}")
-                    else:
-                        logging.info(f"🔍 Media item not found in search, using directory refresh")
-                        matched_section.update(path=file_dir)
+                        # For TV shows, also refresh at show level if we found an episode
+                        if expected_library_type == 'show' and hasattr(media_item, 'show'):
+                            media_item.show().refresh()
+                            logging.info(f"📺 Also refreshed show: {media_item.show().title}")
+                    
+                    # Always perform directory update as additional measure
+                    matched_section.update(path=file_dir)
+                    logging.info(f"📁 Updated directory: {file_dir}")
+                    
+                    # Brief delay to allow Plex to process the update
+                    import time
+                    time.sleep(2)
+                    
+                    # For maximum effectiveness, also trigger section refresh
+                    matched_section.refresh()
+                    logging.info(f"📚 Triggered section refresh for: {matched_section.title}")
                         
                 except Exception as refresh_error:
-                    logging.warning(f"⚠️ Specific item refresh failed: {refresh_error}")
-                    logging.info(f"🔄 Falling back to directory refresh")
+                    logging.warning(f"⚠️ Enhanced refresh failed: {refresh_error}")
+                    logging.info(f"🔄 Falling back to aggressive directory refresh")
                     file_dir = os.path.dirname(plex_file_path)
                     matched_section.update(path=file_dir)
+                    matched_section.refresh()
+                    logging.info(f"📚 Performed fallback section refresh")
                     
             elif smart_scanning:
                 file_dir = os.path.dirname(plex_file_path)
