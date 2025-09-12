@@ -34,17 +34,30 @@ format_duration() {
 
 # Get system resource usage with colors (ZFS-aware)
 get_colored_system_stats() {
-    # CPU usage
-    local cpu_idle=$(top -bn1 | grep "Cpu(s)" | awk '{print $8}' | sed 's/%id,//')
-    local cpu_usage=$(echo "100 - $cpu_idle" | bc -l | cut -d. -f1)
+    # CPU usage - improved parsing
+    local cpu_idle=$(top -bn1 | grep "Cpu(s)" | awk '{print $8}' | sed 's/%id,//' | sed 's/[^0-9.]//g')
+    # Ensure we have a valid number
+    if [[ ! "$cpu_idle" =~ ^[0-9]*\.?[0-9]+$ ]]; then
+        cpu_idle="50.0"
+    fi
+    local cpu_usage=$(echo "100 - $cpu_idle" | bc -l 2>/dev/null | cut -d. -f1)
+    # Ensure cpu_usage is a valid integer
+    if [[ ! "$cpu_usage" =~ ^[0-9]+$ ]]; then
+        cpu_usage="50"
+    fi
     
     # ZFS-aware memory usage
     local mem_info=$(cat /proc/meminfo)
     local total_mem_kb=$(echo "$mem_info" | grep '^MemTotal:' | awk '{print $2}')
     local available_mem_kb=$(echo "$mem_info" | grep '^MemAvailable:' | awk '{print $2}')
-    local mem_pressure_percent=$(echo "scale=0; ((($total_mem_kb - $available_mem_kb) * 100) / $total_mem_kb)" | bc)
-    local available_gb=$(echo "scale=1; $available_mem_kb / 1024 / 1024" | bc)
-    local total_gb=$(echo "scale=1; $total_mem_kb / 1024 / 1024" | bc)
+    
+    # Ensure we have valid numbers
+    [[ ! "$total_mem_kb" =~ ^[0-9]+$ ]] && total_mem_kb="8000000"
+    [[ ! "$available_mem_kb" =~ ^[0-9]+$ ]] && available_mem_kb="4000000"
+    
+    local mem_pressure_percent=$(echo "scale=0; ((($total_mem_kb - $available_mem_kb) * 100) / $total_mem_kb)" | bc 2>/dev/null || echo "50")
+    local available_gb=$(echo "scale=1; $available_mem_kb / 1024 / 1024" | bc 2>/dev/null || echo "4.0")
+    local total_gb=$(echo "scale=1; $total_mem_kb / 1024 / 1024" | bc 2>/dev/null || echo "8.0")
     
     # ZFS ARC info if available
     local zfs_arc_info=""
@@ -54,8 +67,12 @@ get_colored_system_stats() {
         zfs_arc_info=" | ${CYAN}ZFS ARC: ${arc_gb}GB${NC}"
     fi
     
-    # Load average
-    local load_avg=$(uptime | awk -F'load average:' '{print $2}' | awk -F',' '{print $1}' | xargs)
+    # Load average - improved parsing
+    local load_avg=$(uptime | awk -F'load average:' '{print $2}' | awk -F',' '{print $1}' | xargs | sed 's/[^0-9.]//g')
+    # Ensure we have a valid number
+    if [[ ! "$load_avg" =~ ^[0-9]*\.?[0-9]+$ ]]; then
+        load_avg="0.0"
+    fi
     
     # Color code based on thresholds
     local cpu_color=$GREEN
@@ -64,12 +81,30 @@ get_colored_system_stats() {
     
     # Use available memory for coloring (ZFS-friendly)
     local mem_color=$GREEN
-    [[ $(echo "$available_gb < 8" | bc -l) -eq 1 ]] && mem_color=$YELLOW
-    [[ $(echo "$available_gb < 4" | bc -l) -eq 1 ]] && mem_color=$RED
+    if command -v bc >/dev/null 2>&1; then
+        [[ $(echo "$available_gb < 8" | bc -l 2>/dev/null) -eq 1 ]] && mem_color=$YELLOW
+        [[ $(echo "$available_gb < 4" | bc -l 2>/dev/null) -eq 1 ]] && mem_color=$RED
+    else
+        # Fallback without bc
+        local available_int=$(echo "$available_gb" | cut -d. -f1)
+        [[ $available_int -lt 8 ]] && mem_color=$YELLOW
+        [[ $available_int -lt 4 ]] && mem_color=$RED
+    fi
     
+    # Load average coloring with better error handling
+    # Adjusted thresholds for heavy conversion workloads
     local load_color=$GREEN
-    [[ $(echo "$load_avg > 4" | bc -l) -eq 1 ]] && load_color=$YELLOW
-    [[ $(echo "$load_avg > 8" | bc -l) -eq 1 ]] && load_color=$RED
+    if command -v bc >/dev/null 2>&1; then
+        local load_high=$(echo "$load_avg > 20.0" | bc -l 2>/dev/null)
+        local load_critical=$(echo "$load_avg > 40.0" | bc -l 2>/dev/null)
+        [[ "$load_high" == "1" ]] && load_color=$YELLOW
+        [[ "$load_critical" == "1" ]] && load_color=$RED
+    else
+        # Fallback comparison without bc - convert to integer
+        local load_int=$(echo "$load_avg" | cut -d. -f1)
+        [[ $load_int -gt 20 ]] && load_color=$YELLOW
+        [[ $load_int -gt 40 ]] && load_color=$RED
+    fi
     
     echo -e "${cpu_color}CPU: ${cpu_usage}%${NC} | ${mem_color}Available: ${available_gb}/${total_gb} GB${NC} | ${load_color}Load: ${load_avg}${NC}${zfs_arc_info}"
 }
@@ -104,7 +139,12 @@ show_conversion_stats() {
     local total_processed=$(grep '"total_processed"' "$STATS_FILE" | cut -d':' -f2 | tr -d ' ,')
     local total_errors=$(grep '"total_errors"' "$STATS_FILE" | cut -d':' -f2 | tr -d ' ,')
     local current_jobs=$(grep '"current_jobs"' "$STATS_FILE" | cut -d':' -f2 | tr -d ' ,')
-    local queue_remaining=$(grep '"queue_remaining"' "$STATS_FILE" | cut -d':' -f2 | tr -d ' ,')
+    local queue_size=$(grep '"queue_remaining"' "$STATS_FILE" | cut -d':' -f2 | tr -d ' ,')
+    # Since we know queue_remaining is actually total queue size in the current running script
+    local queue_total=$queue_size
+    # Calculate actual remaining based on processed files (much safer approach)
+    local queue_remaining=$((queue_total - total_processed))
+    [[ $queue_remaining -lt 0 ]] && queue_remaining=0  # Ensure we don't go negative
     local processing_rate=$(grep '"processing_rate_per_hour"' "$STATS_FILE" | cut -d':' -f2 | tr -d ' ,')
     
     local elapsed_seconds=$((current_time - start_time))
@@ -123,14 +163,15 @@ show_conversion_stats() {
     echo -e "Processed: ${GREEN}$total_processed${NC} files"
     [[ $total_errors -gt 0 ]] && echo -e "Errors: ${RED}$total_errors${NC} files"
     echo -e "Active Jobs: ${BLUE}$current_jobs${NC}"
-    echo -e "Queue Remaining: ${YELLOW}$queue_remaining${NC} files"
+    echo -e "Queue Status: ${YELLOW}$queue_remaining${NC} files remaining out of ${queue_total} total (${total_processed} processed)"
     echo -e "Processing Rate: ${PURPLE}$processing_rate${NC} files/hour"
     echo -e "Estimated Completion: ${CYAN}$eta_formatted${NC}"
     
-    # Progress bar
-    local total_files=$((total_processed + queue_remaining))
-    if [[ $total_files -gt 0 ]]; then
-        local progress_percent=$(echo "scale=0; ($total_processed * 100) / $total_files" | bc)
+    # Progress bar - use total processed and total expected files
+    local total_expected=$((total_processed + queue_remaining))
+    if [[ $total_expected -gt 0 ]]; then
+        # Calculate percentage of completed work
+        local progress_percent=$(echo "scale=0; ($total_processed * 100) / $total_expected" | bc)
         local bar_length=40
         local filled_length=$(echo "scale=0; ($progress_percent * $bar_length) / 100" | bc)
         

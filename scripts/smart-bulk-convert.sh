@@ -31,6 +31,7 @@ START_TIME=$(date +%s)
 CONVERSION_QUEUE=()
 ACTIVE_PIDS=()
 TARGET_DIRS=()
+QUEUE_INDEX=0  # Track current position in queue globally
 
 # Logging function
 log() {
@@ -406,6 +407,8 @@ cleanup_completed_jobs() {
     
     if [[ $completed_jobs -gt 0 ]]; then
         log "INFO" "Completed $completed_jobs job(s). Active: $CURRENT_JOBS, Total processed: $TOTAL_PROCESSED"
+        # Update stats after job completions
+        update_stats
     fi
 }
 
@@ -419,6 +422,11 @@ update_stats() {
         rate=$(echo "scale=2; $TOTAL_PROCESSED / ($elapsed_time / 3600)" | bc -l)
     fi
     
+    # Calculate actual remaining items based on global QUEUE_INDEX
+    local remaining=$(( ${#CONVERSION_QUEUE[@]} - QUEUE_INDEX ))
+    # Log values for debugging
+    log "DEBUG" "Stats Update: Total Queue: ${#CONVERSION_QUEUE[@]}, QUEUE_INDEX: $QUEUE_INDEX, Remaining: $remaining"
+    
     cat > "$STATS_FILE" << EOF
 {
     "start_time": $START_TIME,
@@ -427,7 +435,8 @@ update_stats() {
     "total_processed": $TOTAL_PROCESSED,
     "total_errors": $TOTAL_ERRORS,
     "current_jobs": $CURRENT_JOBS,
-    "queue_remaining": ${#CONVERSION_QUEUE[@]},
+    "queue_remaining": $remaining,
+    "queue_total": ${#CONVERSION_QUEUE[@]},
     "processing_rate_per_hour": $rate
 }
 EOF
@@ -435,9 +444,9 @@ EOF
 
 # Main processing loop
 main_processing_loop() {
-    local queue_index=0
+    # Using global QUEUE_INDEX instead of local queue_index
     
-    while [[ $queue_index -lt ${#CONVERSION_QUEUE[@]} || $CURRENT_JOBS -gt 0 ]]; do
+    while [[ $QUEUE_INDEX -lt ${#CONVERSION_QUEUE[@]} || $CURRENT_JOBS -gt 0 ]]; do
         # Clean up completed jobs
         cleanup_completed_jobs
         
@@ -445,13 +454,13 @@ main_processing_loop() {
         local optimal_jobs=$(calculate_optimal_jobs)
         
         # Start new jobs if needed and possible
-        while [[ $CURRENT_JOBS -lt $optimal_jobs && $queue_index -lt ${#CONVERSION_QUEUE[@]} ]]; do
-            start_conversion_job "${CONVERSION_QUEUE[$queue_index]}"
-            queue_index=$((queue_index + 1))
+        while [[ $CURRENT_JOBS -lt $optimal_jobs && $QUEUE_INDEX -lt ${#CONVERSION_QUEUE[@]} ]]; do
+            start_conversion_job "${CONVERSION_QUEUE[$QUEUE_INDEX]}"
+            QUEUE_INDEX=$((QUEUE_INDEX + 1))
         done
         
         # Wait and monitor
-        log "INFO" "Active jobs: $CURRENT_JOBS/$optimal_jobs, Queue: $queue_index/${#CONVERSION_QUEUE[@]}, Processed: $TOTAL_PROCESSED"
+        log "INFO" "Active jobs: $CURRENT_JOBS/$optimal_jobs, Queue: $QUEUE_INDEX/${#CONVERSION_QUEUE[@]}, Processed: $TOTAL_PROCESSED"
         update_stats
         
         sleep $CHECK_INTERVAL
