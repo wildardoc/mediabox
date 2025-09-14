@@ -132,6 +132,7 @@ OPTIONS:
     -i, --interval N     Check interval in seconds (default: 30)
     --cpu-limit N        Max CPU usage percentage (default: 75)
     --memory-limit N     Max memory usage percentage (default: 90)
+    --force-stereo       Force creation of enhanced stereo tracks for all files
     --create-config      Create default configuration file
     -h, --help          Show help
 
@@ -139,6 +140,7 @@ EXAMPLES:
     ./smart-bulk-convert.sh /Storage/media/movies
     ./smart-bulk-convert.sh --max-jobs 2 /Storage/media/tv
     ./smart-bulk-convert.sh --cpu-limit 60 /Storage/media/movies
+    ./smart-bulk-convert.sh --force-stereo /Storage/media/tv
 ```
 
 ### smart-monitor.sh Options

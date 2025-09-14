@@ -22,6 +22,7 @@ MAX_PARALLEL_JOBS=4         # Maximum concurrent conversion jobs
 MIN_PARALLEL_JOBS=1         # Minimum concurrent conversion jobs
 PLEX_PRIORITY=true          # Give Plex transcoding priority
 DOWNLOAD_PRIORITY=true      # Give downloaders priority
+FORCE_STEREO=false          # Force creation of enhanced stereo tracks
 
 # Runtime variables
 CURRENT_JOBS=0
@@ -57,8 +58,10 @@ load_config() {
             # Handle boolean values correctly
             local plex_priority_val=$(jq -r '.plex_priority' "$CONFIG_FILE")
             local download_priority_val=$(jq -r '.download_priority' "$CONFIG_FILE")
+            local force_stereo_val=$(jq -r '.force_stereo' "$CONFIG_FILE")
             [[ "$plex_priority_val" == "true" ]] && PLEX_PRIORITY=true || PLEX_PRIORITY=false
             [[ "$download_priority_val" == "true" ]] && DOWNLOAD_PRIORITY=true || DOWNLOAD_PRIORITY=false
+            [[ "$force_stereo_val" == "true" ]] && FORCE_STEREO=true || FORCE_STEREO=false
         fi
     else
         log "INFO" "No config file found, using defaults"
@@ -78,6 +81,7 @@ create_default_config() {
     "min_parallel_jobs": 1,
     "plex_priority": true,
     "download_priority": true,
+    "force_stereo": false,
     "target_directories": [
         "/content/movies",
         "/content/tv"
@@ -374,7 +378,13 @@ start_conversion_job() {
     # Start conversion in background
     (
         cd "$SCRIPT_DIR"
-        if python3 media_update.py --file "$input_file" --type video; then
+        # Build command with optional --force-stereo flag
+        local cmd="python3 media_update.py --file \"$input_file\" --type video"
+        if [[ "$FORCE_STEREO" == "true" ]]; then
+            cmd="$cmd --force-stereo"
+        fi
+        
+        if eval "$cmd"; then
             echo "SUCCESS:$input_file" >> "${LOG_FILE}.results"
         else
             echo "ERROR:$input_file" >> "${LOG_FILE}.results"
@@ -513,6 +523,7 @@ OPTIONS:
     --cpu-limit N        Max CPU usage percentage (default: $MAX_CPU_PERCENT)
     --memory-limit N     Max memory usage percentage (default: $MAX_MEMORY_PERCENT)
     --load-limit N       Max load average (default: $MAX_LOAD_AVERAGE)
+    --force-stereo       Force creation of enhanced stereo tracks for all files
     --create-config      Create default configuration file
     -h, --help          Show this help
 
@@ -520,6 +531,7 @@ EXAMPLES:
     $0 /content/movies /content/tv            # Convert movies and TV with smart resource management
     $0 --max-jobs 5 /content/movies          # Limit to 5 parallel jobs  
     $0 --cpu-limit 95 /content/movies /content/tv  # More conservative CPU usage
+    $0 --force-stereo /content/tv             # Force enhanced stereo creation for better dialogue
     $0 --create-config                       # Create configuration file for customization
 
 The script will:
@@ -558,6 +570,10 @@ while [[ $# -gt 0 ]]; do
         --load-limit)
             MAX_LOAD_AVERAGE="$2"
             shift 2
+            ;;
+        --force-stereo)
+            FORCE_STEREO=true
+            shift
             ;;
         --create-config)
             create_default_config

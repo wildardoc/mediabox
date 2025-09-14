@@ -1,23 +1,29 @@
 {
-    "max_cpu_percent": 98,
-    "max_memory_percent": 90,
-    "max_load_average": 30.0,
-    "min_available_memory_gb": 2,
-    "check_interval": 30,
-    "max_parallel_jobs": 5,
-    "min_parallel_jobs": 1,
-    "plex_priority": true,
-    "download_priority": false,
-    "zfs_aware": true,
-    "target_directories": [
-        "/Storage/media/movies",
-        "/Storage/media/tv"
-    ],
-    "pause_for_processes": [
-        "PlexTranscoder",
-        "plex_ffmpeg"
-    ],
-    "video_extensions": [
-        "mkv", "mp4", "avi", "mov", "wmv", "flv"
-    ]
+  "max_cpu_percent": 98,
+  "max_memory_percent": 90,
+  "max_load_average": 30.0,
+  "min_available_memory_gb": 2,
+  "check_interval": 30,
+  "max_parallel_jobs": 5,
+  "min_parallel_jobs": 1,
+  "plex_priority": true,
+  "download_priority": false,
+  "zfs_aware": true,
+  "target_directories": [
+    "/Storage/media/movies",
+    "/Storage/media/tv"
+  ],
+  "pause_for_processes": [
+    "PlexTranscoder",
+    "plex_ffmpeg"
+  ],
+  "video_extensions": [
+    "mkv",
+    "mp4",
+    "avi",
+    "mov",
+    "wmv",
+    "flv"
+  ],
+  "force_stereo": false
 }

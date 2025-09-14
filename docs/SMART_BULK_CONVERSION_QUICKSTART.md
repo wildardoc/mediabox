@@ -27,6 +27,12 @@ The Smart Bulk Media Converter is an intelligent, resource-aware batch processin
 - Graceful fallback to optimized software encoding
 - Docker GPU device mapping for container access
 
+### 🎵 **Advanced Audio Processing**
+- **7.1 to 5.1 Conversion**: Automatically creates 5.1 surround from 7.1 sources when no 5.1 exists
+- **Enhanced Stereo Creation**: Optional creation of dialogue-optimized stereo tracks with boosted center channel
+- **Multi-Track Preservation**: Always preserves original audio tracks alongside created enhancements
+- **Smart Audio Detection**: Only creates additional tracks when beneficial (no duplicates)
+
 ## Quick Start
 
 ### Start Smart Converter
@@ -92,6 +98,7 @@ Options:
   --cpu-limit N     CPU threshold percentage
   --memory-limit N  Memory threshold percentage  
   --load-limit N    Load average threshold
+  --force-stereo    Force creation of enhanced stereo tracks for all files
   --config FILE     Use custom configuration file
 ```
 
@@ -201,6 +208,18 @@ tail -f smart_bulk_convert_*.log | grep -E "Active jobs|Starting conversion|Comp
 
 # Custom directories
 ./smart-bulk-convert.sh /Storage/media/anime /Storage/media/documentaries
+```
+
+### Audio Enhancement Options
+```bash
+# Force enhanced stereo creation for all files (great for TV shows)
+./smart-bulk-convert.sh --force-stereo /Storage/media/tv
+
+# Enhanced stereo for both movies and TV
+./smart-bulk-convert.sh --force-stereo /Storage/media/movies /Storage/media/tv
+
+# Combine with other options
+./smart-bulk-convert.sh --force-stereo --max-jobs 3 /Storage/media/tv
 ```
 
 ### Development and Testing
