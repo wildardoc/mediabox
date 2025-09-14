@@ -34,6 +34,7 @@ LAST_RAMP_UP_TIME=$START_TIME    # Track when we last increased job count
 CURRENT_TARGET_JOBS=1            # Start conservatively with 1 job
 CONVERSION_QUEUE=()
 ACTIVE_PIDS=()
+ACTIVE_JOB_FILES=()  # Track which files are being processed by each PID
 TARGET_DIRS=()
 QUEUE_INDEX=0  # Track current position in queue globally
 
@@ -303,6 +304,7 @@ detect_existing_conversions() {
         while IFS= read -r pid; do
             if [[ -n "$pid" ]]; then
                 ACTIVE_PIDS+=($pid)
+                ACTIVE_JOB_FILES+=("UNKNOWN_EXISTING_PROCESS")  # We can't know which file
                 CURRENT_JOBS=$((CURRENT_JOBS + 1))
                 log "INFO" "Adopted existing conversion process (PID: $pid)"
             fi
@@ -430,6 +432,7 @@ start_conversion_job() {
     
     local pid=$!
     ACTIVE_PIDS+=($pid)
+    ACTIVE_JOB_FILES+=("$input_file")
     CURRENT_JOBS=$((CURRENT_JOBS + 1))
     
     log "DEBUG" "Started job $job_id (PID: $pid) for $(basename "$input_file")"
@@ -438,22 +441,51 @@ start_conversion_job() {
 # Clean up completed jobs
 cleanup_completed_jobs() {
     local new_pids=()
+    local new_job_files=()
     local completed_jobs=0
+    local failed_jobs=0
     
-    for pid in "${ACTIVE_PIDS[@]}"; do
+    for i in "${!ACTIVE_PIDS[@]}"; do
+        local pid="${ACTIVE_PIDS[$i]}"
+        local job_file="${ACTIVE_JOB_FILES[$i]}"
+        
         if kill -0 "$pid" 2>/dev/null; then
-            new_pids+=($pid)
+            # Job still running
+            new_pids+=("$pid")
+            new_job_files+=("$job_file")
         else
-            completed_jobs=$((completed_jobs + 1))
-            CURRENT_JOBS=$((CURRENT_JOBS - 1))
-            TOTAL_PROCESSED=$((TOTAL_PROCESSED + 1))
+            # Job finished - check if it completed successfully
+            local temp_file="${job_file%.*}.tmp.${job_file##*.}"
+            local final_file="${job_file%.*}.mp4"
+            
+            if [[ -f "$final_file" && ! -f "$temp_file" ]]; then
+                # Success: final file exists and temp file is gone
+                completed_jobs=$((completed_jobs + 1))
+                CURRENT_JOBS=$((CURRENT_JOBS - 1))
+                TOTAL_PROCESSED=$((TOTAL_PROCESSED + 1))
+                log "INFO" "✅ Successfully completed: $(basename "$job_file")"
+            else
+                # Failed or terminated: requeue the file
+                failed_jobs=$((failed_jobs + 1))
+                CURRENT_JOBS=$((CURRENT_JOBS - 1))
+                
+                # Clean up any partial temp file
+                [[ -f "$temp_file" ]] && rm -f "$temp_file"
+                
+                # Add back to front of queue for retry
+                CONVERSION_QUEUE=("$job_file" "${CONVERSION_QUEUE[@]:$QUEUE_INDEX}")
+                QUEUE_INDEX=0
+                
+                log "WARN" "🔄 Requeuing failed/terminated job: $(basename "$job_file")"
+            fi
         fi
     done
     
     ACTIVE_PIDS=("${new_pids[@]}")
+    ACTIVE_JOB_FILES=("${new_job_files[@]}")
     
-    if [[ $completed_jobs -gt 0 ]]; then
-        log "INFO" "Completed $completed_jobs job(s). Active: $CURRENT_JOBS, Total processed: $TOTAL_PROCESSED"
+    if [[ $completed_jobs -gt 0 || $failed_jobs -gt 0 ]]; then
+        log "INFO" "Jobs completed: $completed_jobs, failed/requeued: $failed_jobs. Active: $CURRENT_JOBS, Total processed: $TOTAL_PROCESSED"
         # Update stats after job completions
         update_stats
     fi
