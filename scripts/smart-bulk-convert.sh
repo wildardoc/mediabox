@@ -545,9 +545,18 @@ main_processing_loop() {
                 local oldest_pid="${ACTIVE_PIDS[0]}"
                 if kill -0 "$oldest_pid" 2>/dev/null; then
                     log "INFO" "Terminating excess job PID: $oldest_pid (reducing from $CURRENT_JOBS to $optimal_jobs jobs)"
+                    
+                    # Kill the entire process group to ensure child processes (FFmpeg) are terminated
+                    # First try gentle termination of the process group
+                    pkill -TERM -P "$oldest_pid" 2>/dev/null || true
                     kill -TERM "$oldest_pid" 2>/dev/null || true
-                    # Wait a moment for termination
-                    sleep 2
+                    
+                    # Wait a moment for graceful termination
+                    sleep 3
+                    
+                    # Force kill any remaining processes in the group
+                    pkill -KILL -P "$oldest_pid" 2>/dev/null || true
+                    kill -KILL "$oldest_pid" 2>/dev/null || true
                 fi
                 # Clean up completed jobs to update counts
                 cleanup_completed_jobs
@@ -576,7 +585,9 @@ cleanup() {
     # Kill all active conversion jobs
     for pid in "${ACTIVE_PIDS[@]}"; do
         if kill -0 "$pid" 2>/dev/null; then
-            log "INFO" "Terminating job PID: $pid"
+            log "INFO" "Terminating job PID: $pid and its children"
+            # Kill child processes first (FFmpeg), then parent
+            pkill -TERM -P "$pid" 2>/dev/null || true
             kill -TERM "$pid" 2>/dev/null || true
         fi
     done
@@ -587,7 +598,8 @@ cleanup() {
     # Force kill if necessary
     for pid in "${ACTIVE_PIDS[@]}"; do
         if kill -0 "$pid" 2>/dev/null; then
-            log "WARN" "Force killing job PID: $pid"
+            log "WARN" "Force killing job PID: $pid and its children"
+            pkill -KILL -P "$pid" 2>/dev/null || true
             kill -KILL "$pid" 2>/dev/null || true
         fi
     done
