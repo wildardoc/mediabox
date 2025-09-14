@@ -18,6 +18,7 @@ MAX_MEMORY_PERCENT=80       # Stop adding processes above this memory usage
 MAX_LOAD_AVERAGE=8.0        # Stop adding processes above this load average
 MIN_AVAILABLE_MEMORY_GB=2   # Minimum free memory to maintain
 CHECK_INTERVAL=30           # Seconds between resource checks
+RAMP_UP_INTERVAL=30         # Seconds to wait before adding another job (30 seconds)
 MAX_PARALLEL_JOBS=4         # Maximum concurrent conversion jobs
 MIN_PARALLEL_JOBS=1         # Minimum concurrent conversion jobs
 PLEX_PRIORITY=true          # Give Plex transcoding priority
@@ -29,6 +30,8 @@ CURRENT_JOBS=0
 TOTAL_PROCESSED=0
 TOTAL_ERRORS=0
 START_TIME=$(date +%s)
+LAST_RAMP_UP_TIME=$START_TIME    # Track when we last increased job count
+CURRENT_TARGET_JOBS=1            # Start conservatively with 1 job
 CONVERSION_QUEUE=()
 ACTIVE_PIDS=()
 TARGET_DIRS=()
@@ -55,6 +58,7 @@ load_config() {
             MAX_LOAD_AVERAGE=$(jq -r '.max_load_average // 8.0' "$CONFIG_FILE")
             MAX_PARALLEL_JOBS=$(jq -r '.max_parallel_jobs // 4' "$CONFIG_FILE")
             CHECK_INTERVAL=$(jq -r '.check_interval // 30' "$CONFIG_FILE")
+            RAMP_UP_INTERVAL=$(jq -r '.ramp_up_interval // 30' "$CONFIG_FILE")
             # Handle boolean values correctly
             local plex_priority_val=$(jq -r '.plex_priority' "$CONFIG_FILE")
             local download_priority_val=$(jq -r '.download_priority' "$CONFIG_FILE")
@@ -77,6 +81,7 @@ create_default_config() {
     "max_load_average": 8.0,
     "min_available_memory_gb": 2,
     "check_interval": 30,
+    "ramp_up_interval": 30,
     "max_parallel_jobs": 4,
     "min_parallel_jobs": 1,
     "plex_priority": true,
@@ -186,20 +191,27 @@ calculate_optimal_jobs() {
     if [[ -z "$available_gb" ]] || [[ ! "$available_gb" =~ ^[0-9]*\.?[0-9]+$ ]]; then available_gb="8.0"; fi
     
     local priority_processes=$(check_priority_processes)
-    local optimal_jobs=$MAX_PARALLEL_JOBS
+    local current_time=$(date +%s)
+    local time_since_last_ramp=$((current_time - LAST_RAMP_UP_TIME))
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     
-    echo "[$timestamp] [DEBUG] Stats: CPU=${cpu_usage}%,Mem=${mem_percent}%,Load=${load_avg},RAM=${available_gb}GB,Prio=${priority_processes}" >> "$LOG_FILE"
+    echo "[$timestamp] [DEBUG] Stats: CPU=${cpu_usage}%,Mem=${mem_percent}%,Load=${load_avg},RAM=${available_gb}GB,Prio=${priority_processes},Target=${CURRENT_TARGET_JOBS}" >> "$LOG_FILE"
     
-    # Reduce jobs if high-priority processes are running
+    # Start with current target (conservative approach)
+    local optimal_jobs=$CURRENT_TARGET_JOBS
+    local system_healthy=true
+    
+    # Check if system is under stress - immediate reduction if needed
     if [[ $priority_processes -gt 0 ]]; then
         optimal_jobs=$(( optimal_jobs / 2 ))
-        echo "[$timestamp] [INFO] High-priority processes detected, reducing parallel jobs to $optimal_jobs" >> "$LOG_FILE"
+        system_healthy=false
+        echo "[$timestamp] [INFO] High-priority processes detected, reducing jobs to $optimal_jobs" >> "$LOG_FILE"
     fi
     
-    # Check resource thresholds - ensure safe arithmetic operations
+    # CPU threshold check
     if [[ $cpu_usage -gt $MAX_CPU_PERCENT ]]; then
         optimal_jobs=$(( optimal_jobs - 1 ))
+        system_healthy=false
         log "INFO" "CPU usage high (${cpu_usage}%), reducing jobs to $optimal_jobs" >&2
     fi
     
@@ -221,9 +233,11 @@ calculate_optimal_jobs() {
     
     if [[ $memory_ok -eq 0 ]]; then
         optimal_jobs=0
+        system_healthy=false
         log "WARN" "Low available memory (${available_gb}GB < ${MIN_AVAILABLE_MEMORY_GB}GB), pausing conversions" >&2
     elif [[ $mem_percent -gt $MAX_MEMORY_PERCENT ]]; then
         optimal_jobs=$(( optimal_jobs - 1 ))
+        system_healthy=false
         log "INFO" "Memory pressure high (${mem_percent}%), reducing jobs to $optimal_jobs" >&2
     fi
     
@@ -246,7 +260,28 @@ calculate_optimal_jobs() {
     
     if [[ $load_high -eq 1 ]]; then
         optimal_jobs=$(( optimal_jobs - 1 ))
+        system_healthy=false
         log "INFO" "Load average high (${load_avg}), reducing jobs to $optimal_jobs" >&2
+    fi
+    
+    # GRADUAL RAMP-UP LOGIC: Only increase if system is healthy and enough time has passed
+    if [[ $system_healthy == true && $time_since_last_ramp -ge $RAMP_UP_INTERVAL ]]; then
+        # Check if we can safely add another job
+        if [[ $CURRENT_TARGET_JOBS -lt $MAX_PARALLEL_JOBS && $CURRENT_JOBS -gt 0 ]]; then
+            # System is stable, consider ramping up
+            local new_target=$((CURRENT_TARGET_JOBS + 1))
+            log "INFO" "System stable for ${time_since_last_ramp}s, ramping up from $CURRENT_TARGET_JOBS to $new_target jobs" >&2
+            CURRENT_TARGET_JOBS=$new_target
+            LAST_RAMP_UP_TIME=$current_time
+            optimal_jobs=$CURRENT_TARGET_JOBS
+        fi
+    fi
+    
+    # Update target if we had to reduce due to system stress
+    if [[ $optimal_jobs -lt $CURRENT_TARGET_JOBS ]]; then
+        CURRENT_TARGET_JOBS=$optimal_jobs
+        LAST_RAMP_UP_TIME=$current_time  # Reset ramp-up timer after reduction
+        log "INFO" "Reduced target jobs to $CURRENT_TARGET_JOBS due to system stress" >&2
     fi
     
     # Ensure we stay within bounds
@@ -272,9 +307,11 @@ detect_existing_conversions() {
                 log "INFO" "Adopted existing conversion process (PID: $pid)"
             fi
         done <<< "$existing_pids"
-        log "INFO" "Adopted $CURRENT_JOBS existing conversion process(es)"
+        # Set initial target based on existing jobs (but at least 1)
+        CURRENT_TARGET_JOBS=$(( CURRENT_JOBS > 0 ? CURRENT_JOBS : 1 ))
+        log "INFO" "Adopted $CURRENT_JOBS existing conversion process(es), setting target to $CURRENT_TARGET_JOBS"
     else
-        log "INFO" "No existing conversion processes found"
+        log "INFO" "No existing conversion processes found, starting with target of $CURRENT_TARGET_JOBS"
     fi
 }
 
@@ -535,11 +572,12 @@ EXAMPLES:
     $0 --create-config                       # Create configuration file for customization
 
 The script will:
-1. Monitor system resources (CPU, memory, load)
-2. Detect high-priority processes (Plex, downloads)
-3. Dynamically scale conversion jobs based on available resources
-4. Pause/resume automatically based on system load
-5. Log all decisions and maintain conversion statistics
+1. Start conservatively with 1 job and gradually ramp up every 30 seconds
+2. Monitor system resources (CPU, memory, load)
+3. Detect high-priority processes (Plex, downloads)
+4. Dynamically scale conversion jobs based on available resources
+5. Pause/resume automatically based on system load
+6. Log all decisions and maintain conversion statistics
 
 EOF
 }
