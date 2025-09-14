@@ -506,6 +506,27 @@ main_processing_loop() {
             QUEUE_INDEX=$((QUEUE_INDEX + 1))
         done
         
+        # Terminate excess jobs if current jobs exceed optimal count
+        while [[ $CURRENT_JOBS -gt $optimal_jobs ]]; do
+            # Find and terminate the oldest job (first in array)
+            if [[ ${#ACTIVE_PIDS[@]} -gt 0 ]]; then
+                local oldest_pid="${ACTIVE_PIDS[0]}"
+                if kill -0 "$oldest_pid" 2>/dev/null; then
+                    log "INFO" "Terminating excess job PID: $oldest_pid (reducing from $CURRENT_JOBS to $optimal_jobs jobs)"
+                    kill -TERM "$oldest_pid" 2>/dev/null || true
+                    # Wait a moment for termination
+                    sleep 2
+                fi
+                # Clean up completed jobs to update counts
+                cleanup_completed_jobs
+            else
+                # Safety break if no active PIDs but CURRENT_JOBS > 0
+                log "WARN" "CURRENT_JOBS=$CURRENT_JOBS but no active PIDs, resetting counter"
+                CURRENT_JOBS=0
+                break
+            fi
+        done
+        
         # Wait and monitor
         log "INFO" "Active jobs: $CURRENT_JOBS/$optimal_jobs, Queue: $QUEUE_INDEX/${#CONVERSION_QUEUE[@]}, Processed: $TOTAL_PROCESSED"
         update_stats
