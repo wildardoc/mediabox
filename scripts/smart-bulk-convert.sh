@@ -103,6 +103,33 @@ EOF
     log "INFO" "Created default configuration at $CONFIG_FILE"
 }
 
+# Individual resource functions for baseline tracking
+get_cpu_usage() {
+    local cpu_idle=$(top -bn1 | grep "Cpu(s)" | awk '{print $8}' | sed 's/%id,//' | sed 's/[^0-9.]//g')
+    if [[ ! "$cpu_idle" =~ ^[0-9]*\.?[0-9]+$ ]]; then
+        cpu_idle="0"
+    fi
+    local cpu_usage=$(echo "100 - $cpu_idle" | bc -l 2>/dev/null | cut -d. -f1)
+    if [[ ! "$cpu_usage" =~ ^[0-9]+$ ]]; then
+        cpu_usage="0"
+    fi
+    echo "$cpu_usage"
+}
+
+get_memory_usage() {
+    local mem_total=$(free | grep "Mem:" | awk '{print $2}')
+    local mem_available=$(free | grep "Mem:" | awk '{print $7}')
+    if [[ -z "$mem_available" ]]; then
+        mem_available=$(free | grep "Mem:" | awk '{print $4}')
+    fi
+    local mem_used=$((mem_total - mem_available))
+    local mem_percent=$(echo "scale=0; ($mem_used * 100) / $mem_total" | bc 2>/dev/null)
+    if [[ ! "$mem_percent" =~ ^[0-9]+$ ]]; then
+        mem_percent="0"
+    fi
+    echo "$mem_percent"
+}
+
 # Get system resource usage (ZFS-aware)
 get_system_stats() {
     # CPU usage (1-minute average, inverted from idle)
@@ -338,36 +365,27 @@ build_conversion_queue() {
         
         log "INFO" "Scanning directory: $target_dir"
         
-        # Use a simpler approach - find all video files at once
-        echo "DEBUG: Starting find command for video files..."
+        # Find all video files in this directory
         local temp_files=()
-        while IFS= read -r -d '' file; do
-            temp_files+=("$file")
-        done < <(find "$target_dir" -type f \( -name "*.mkv" -o -name "*.mp4" -o -name "*.avi" -o -name "*.mov" -o -name "*.wmv" -o -name "*.flv" \) -print0 2>/dev/null)
-        
-        echo "DEBUG: Found ${#temp_files[@]} total video files"
-        
-        # Process each file
-        for file in "${temp_files[@]}"; do
-            # Check if this file needs conversion based on media_update.py logic
-            if needs_conversion "$file" 2>/dev/null; then
-                CONVERSION_QUEUE+=("$file")
-                echo "DEBUG: Added to queue: $(basename "$file")"
-            fi
-            
-            # Update stats periodically during scanning (every 100 files)
-            ((files_scanned++))
-            if (( files_scanned % 100 == 0 )); then
-                echo "DEBUG: Scanned $files_scanned files, queue size: ${#CONVERSION_QUEUE[@]}"
-                echo "DEBUG: About to call update_stats..."
-                if ! update_stats; then
-                    echo "DEBUG: update_stats failed"
+        for ext in "${video_extensions[@]}"; do
+            while IFS= read -r -d '' file; do
+                if needs_conversion "$file"; then
+                    CONVERSION_QUEUE+=("$file")
                 fi
-                echo "DEBUG: update_stats completed"
-            fi
+                ((files_scanned++))
+                # Update stats periodically during scanning (every 100 files)
+                if (( files_scanned % 100 == 0 )); then
+                    echo "DEBUG: Scanned $files_scanned files, queue size: ${#CONVERSION_QUEUE[@]}"
+                    echo "DEBUG: About to call update_stats..."
+                    if ! update_stats; then
+                        echo "DEBUG: update_stats failed"
+                    fi
+                    echo "DEBUG: update_stats completed"
+                fi
+            done < <(find "$target_dir" -type f -iname "*.${ext}" -print0)
         done
         
-        echo "DEBUG: Completed processing all ${#temp_files[@]} files in directory"
+        echo "DEBUG: Completed processing directory: $target_dir"
         
         # Update stats after each directory completes
         log "INFO" "Completed scanning: $target_dir (${#CONVERSION_QUEUE[@]} files queued so far)"
@@ -377,6 +395,45 @@ build_conversion_queue() {
         fi
         echo "DEBUG: Final update_stats completed"
     done
+    
+    # Deduplicate the queue to prevent processing the same file multiple times
+    # This is especially important when running with overlapping directory targets
+    # (e.g., specific season → all seasons → all shows → all TV)
+    local original_count=${#CONVERSION_QUEUE[@]}
+    if [[ $original_count -gt 0 ]]; then
+        # Use associative array for efficient deduplication by full file path
+        declare -A seen_files
+        local deduplicated_queue=()
+        
+        for file in "${CONVERSION_QUEUE[@]}"; do
+            # Use the absolute path as the key to prevent duplicates
+            local abs_path
+            if abs_path=$(realpath "$file" 2>/dev/null); then
+                if [[ ! -v "seen_files[$abs_path]" ]]; then
+                    seen_files["$abs_path"]=1
+                    deduplicated_queue+=("$file")
+                else
+                    log "DEBUG" "Skipping duplicate: $(basename "$file") (already queued from another directory)"
+                fi
+            else
+                # If realpath fails, fall back to the original path
+                if [[ ! -v "seen_files[$file]" ]]; then
+                    seen_files["$file"]=1
+                    deduplicated_queue+=("$file")
+                else
+                    log "DEBUG" "Skipping duplicate: $(basename "$file")"
+                fi
+            fi
+        done
+        
+        CONVERSION_QUEUE=("${deduplicated_queue[@]}")
+        local final_count=${#CONVERSION_QUEUE[@]}
+        local duplicates_removed=$((original_count - final_count))
+        
+        if [[ $duplicates_removed -gt 0 ]]; then
+            log "INFO" "Removed $duplicates_removed duplicate files from overlapping directory targets"
+        fi
+    fi
     
     log "INFO" "Found ${#CONVERSION_QUEUE[@]} files requiring conversion across all directories"
     echo "DEBUG: Queue size = ${#CONVERSION_QUEUE[@]}" 
@@ -413,6 +470,10 @@ start_conversion_job() {
     local job_id="conv_$(date +%s)_$$"
     
     log "INFO" "Starting conversion: $(basename "$input_file")"
+    
+    # Create job start time marker
+    local job_start_file="/tmp/job_start_$(basename "$input_file" | tr ' ' '_').time"
+    echo "$(date +%s)" > "$job_start_file"
     
     # Start conversion in background
     (
@@ -458,25 +519,60 @@ cleanup_completed_jobs() {
             local temp_file="${job_file%.*}.tmp.${job_file##*.}"
             local final_file="${job_file%.*}.mp4"
             
-            if [[ -f "$final_file" && ! -f "$temp_file" ]]; then
-                # Success: final file exists and temp file is gone
-                completed_jobs=$((completed_jobs + 1))
-                CURRENT_JOBS=$((CURRENT_JOBS - 1))
-                TOTAL_PROCESSED=$((TOTAL_PROCESSED + 1))
-                log "INFO" "✅ Successfully completed: $(basename "$job_file")"
-            else
-                # Failed or terminated: requeue the file
+            # If temp file still exists, the job was terminated/cancelled, not completed
+            if [[ -f "$temp_file" ]]; then
+                # Job was terminated/cancelled: requeue it
                 failed_jobs=$((failed_jobs + 1))
                 CURRENT_JOBS=$((CURRENT_JOBS - 1))
                 
-                # Clean up any partial temp file
-                [[ -f "$temp_file" ]] && rm -f "$temp_file"
+                # Clean up the partial temp file
+                rm -f "$temp_file"
                 
                 # Add back to front of queue for retry
                 CONVERSION_QUEUE=("$job_file" "${CONVERSION_QUEUE[@]:$QUEUE_INDEX}")
                 QUEUE_INDEX=0
                 
-                log "WARN" "🔄 Requeuing failed/terminated job: $(basename "$job_file")"
+                log "WARN" "🔄 Requeuing terminated/cancelled job: $(basename "$job_file")"
+            else
+                # Job finished without temp file - check if it was killed or completed naturally
+                local current_time=$(date +%s)
+                local job_start_file="/tmp/job_start_$(basename "$job_file" | tr ' ' '_').time"
+                local job_status_file="/tmp/job_status_$(basename "$job_file" | tr ' ' '_').status"
+                local job_runtime=0
+                local was_killed=false
+                
+                # Check if job was marked as killed
+                if [[ -f "$job_status_file" ]]; then
+                    local status=$(cat "$job_status_file" 2>/dev/null)
+                    if [[ "$status" == "KILLED" ]]; then
+                        was_killed=true
+                    fi
+                    rm -f "$job_status_file"  # Clean up
+                fi
+                
+                if [[ -f "$job_start_file" ]]; then
+                    local start_time=$(cat "$job_start_file" 2>/dev/null || echo "$current_time")
+                    job_runtime=$((current_time - start_time))
+                    rm -f "$job_start_file"  # Clean up
+                fi
+                
+                if [[ "$was_killed" == "true" ]]; then
+                    # Job was explicitly killed by load balancer - requeue it
+                    failed_jobs=$((failed_jobs + 1))
+                    CURRENT_JOBS=$((CURRENT_JOBS - 1))
+                    
+                    # Add back to front of queue for retry
+                    CONVERSION_QUEUE=("$job_file" "${CONVERSION_QUEUE[@]:$QUEUE_INDEX}")
+                    QUEUE_INDEX=0
+                    
+                    log "WARN" "🔄 Requeuing job killed by load balancer (runtime: ${job_runtime}s): $(basename "$job_file")"
+                else
+                    # Job completed naturally (not killed by load balancer)
+                    completed_jobs=$((completed_jobs + 1))
+                    CURRENT_JOBS=$((CURRENT_JOBS - 1))
+                    TOTAL_PROCESSED=$((TOTAL_PROCESSED + 1))
+                    log "INFO" "✅ Successfully completed conversion (runtime: ${job_runtime}s): $(basename "$job_file")"
+                fi
             fi
         fi
     done
@@ -525,6 +621,14 @@ EOF
 main_processing_loop() {
     # Using global QUEUE_INDEX instead of local queue_index
     
+    # Record baseline resource usage when we start
+    local baseline_resources_file="/tmp/smart_convert_baseline_resources"
+    local baseline_cpu=$(get_cpu_usage)
+    local baseline_mem=$(get_memory_usage)
+    echo "CPU:$baseline_cpu" > "$baseline_resources_file"
+    echo "MEM:$baseline_mem" >> "$baseline_resources_file"
+    log "INFO" "Recorded baseline resources: CPU: ${baseline_cpu}%, Memory: ${baseline_mem}%"
+    
     while [[ $QUEUE_INDEX -lt ${#CONVERSION_QUEUE[@]} || $CURRENT_JOBS -gt 0 ]]; do
         # Clean up completed jobs
         cleanup_completed_jobs
@@ -533,33 +637,143 @@ main_processing_loop() {
         local optimal_jobs=$(calculate_optimal_jobs)
         
         # Start new jobs if needed and possible
-        while [[ $CURRENT_JOBS -lt $optimal_jobs && $QUEUE_INDEX -lt ${#CONVERSION_QUEUE[@]} ]]; do
-            start_conversion_job "${CONVERSION_QUEUE[$QUEUE_INDEX]}"
-            QUEUE_INDEX=$((QUEUE_INDEX + 1))
-        done
+        # But be conservative after recent job terminations and consider resource proximity
+        local recently_killed_file="/tmp/smart_convert_recently_killed"
+        local baseline_resources_file="/tmp/smart_convert_baseline_resources"
+        local current_time=$(date +%s)
+        local last_kill_time=0
+        
+        if [[ -f "$recently_killed_file" ]]; then
+            last_kill_time=$(cat "$recently_killed_file" 2>/dev/null || echo 0)
+        fi
+        
+        local time_since_kill=$((current_time - last_kill_time))
+        
+        # Don't start new jobs if we killed one in the last 60 seconds
+        if [[ $time_since_kill -lt 60 ]]; then
+            log "INFO" "Recently killed job ${time_since_kill}s ago. Waiting before starting new jobs to prevent thrashing."
+        else
+            # Smart resource-based job addition with failure learning
+            local can_add_jobs=true
+            local failure_history_file="/tmp/smart_convert_failure_history"
+            local single_job_baseline_file="/tmp/smart_convert_single_job_baseline"
+            local current_cpu=$(get_cpu_usage)
+            local current_mem=$(get_memory_usage)
+            
+            # If we have only 1 job running, record its average resource usage as the real baseline
+            if [[ $CURRENT_JOBS -eq 1 && ! -f "$single_job_baseline_file" ]]; then
+                echo "CPU:$current_cpu" > "$single_job_baseline_file"
+                echo "MEM:$current_mem" >> "$single_job_baseline_file"
+                log "INFO" "Recorded single-job baseline: CPU: ${current_cpu}%, Memory: ${current_mem}%"
+            fi
+            
+            # Check if we've previously failed at similar resource levels
+            if [[ -f "$failure_history_file" ]]; then
+                while IFS=: read -r fail_cpu fail_mem; do
+                    # Don't try again if current resources are within 10% of a previous failure
+                    if [[ $current_cpu -ge $((fail_cpu - 10)) && $current_mem -ge $((fail_mem - 10)) ]]; then
+                        log "INFO" "Current resources (CPU: ${current_cpu}%, MEM: ${current_mem}%) too close to previous failure point (CPU: ${fail_cpu}%, MEM: ${fail_mem}%). Skipping job addition."
+                        can_add_jobs=false
+                        break
+                    fi
+                done < "$failure_history_file"
+            fi
+            
+            # If we have a single-job baseline, only add jobs if significantly below it
+            if [[ "$can_add_jobs" == "true" && -f "$single_job_baseline_file" ]]; then
+                local single_cpu=$(grep "CPU:" "$single_job_baseline_file" | cut -d: -f2)
+                local single_mem=$(grep "MEM:" "$single_job_baseline_file" | cut -d: -f2)
+                
+                # Only try adding if current usage is at least 15% below single-job average
+                if [[ $current_cpu -gt $((single_cpu - 15)) || $current_mem -gt $((single_mem - 15)) ]]; then
+                    log "INFO" "Current resources (CPU: ${current_cpu}%, MEM: ${current_mem}%) too close to single-job baseline (CPU: ${single_cpu}%, MEM: ${single_mem}%). Being conservative."
+                    can_add_jobs=false
+                fi
+            fi
+            
+            if [[ "$can_add_jobs" == "true" ]]; then
+                while [[ $CURRENT_JOBS -lt $optimal_jobs && $QUEUE_INDEX -lt ${#CONVERSION_QUEUE[@]} ]]; do
+                    start_conversion_job "${CONVERSION_QUEUE[$QUEUE_INDEX]}"
+                    QUEUE_INDEX=$((QUEUE_INDEX + 1))
+                done
+            fi
+        fi
         
         # Terminate excess jobs if current jobs exceed optimal count
-        while [[ $CURRENT_JOBS -gt $optimal_jobs ]]; do
-            # Find and terminate the oldest job (first in array)
+        # But wait 30 seconds to confirm sustained overload before killing
+        local overload_marker="/tmp/smart_convert_overload_start"
+        local current_time=$(date +%s)
+        
+        if [[ $CURRENT_JOBS -gt $optimal_jobs ]]; then
+            # Check if this is a new overload condition
+            if [[ ! -f "$overload_marker" ]]; then
+                echo "$current_time" > "$overload_marker"
+                log "INFO" "System overload detected. Waiting 30 seconds to confirm sustained overload before terminating jobs."
+                # Don't kill anything yet, just wait
+            else
+                # Overload condition exists - check how long it's been
+                local overload_start_time=$(cat "$overload_marker" 2>/dev/null || echo "$current_time")
+                local overload_duration=$((current_time - overload_start_time))
+                
+                if [[ $overload_duration -lt 30 ]]; then
+                    log "INFO" "Overload duration: ${overload_duration}s. Waiting for sustained overload (30s) before terminating jobs."
+                    # Don't kill anything yet
+                else
+                    # Sustained overload for 30+ seconds - now we can terminate
+                    while [[ $CURRENT_JOBS -gt $optimal_jobs ]]; do
+                        # CRITICAL: Never terminate if only one job is running
+                        if [[ $CURRENT_JOBS -le 1 ]]; then
+                            log "INFO" "Only one job running; will not terminate the last job. Waiting for resources to recover."
+                            break
+                        fi
+            
+            # Find and terminate the newest job (last in array) to preserve work on longer-running jobs
             if [[ ${#ACTIVE_PIDS[@]} -gt 0 ]]; then
-                local oldest_pid="${ACTIVE_PIDS[0]}"
-                if kill -0 "$oldest_pid" 2>/dev/null; then
-                    log "INFO" "Terminating excess job PID: $oldest_pid (reducing from $CURRENT_JOBS to $optimal_jobs jobs)"
+                local newest_index=$((${#ACTIVE_PIDS[@]} - 1))
+                local newest_pid="${ACTIVE_PIDS[$newest_index]}"
+                if kill -0 "$newest_pid" 2>/dev/null; then
+                    # Mark the job as killed so cleanup_completed_jobs knows to requeue it
+                    local job_file="${ACTIVE_JOB_FILES[$newest_index]}"
+                    local job_status_file="/tmp/job_status_$(basename "$job_file" | tr ' ' '_').status"
+                    echo "KILLED" > "$job_status_file"
+                    
+                    # Record the kill time to prevent immediate restart thrashing
+                    echo "$(date +%s)" > "/tmp/smart_convert_recently_killed"
+                    
+                    # Record the resource levels that caused this failure for future learning
+                    local failure_cpu=$(get_cpu_usage)
+                    local failure_mem=$(get_memory_usage)
+                    echo "${failure_cpu}:${failure_mem}" >> "/tmp/smart_convert_failure_history"
+                    
+                    log "INFO" "Terminating newest job PID: $newest_pid to preserve work on longer-running jobs (reducing from $CURRENT_JOBS to $optimal_jobs jobs)"
+                    log "INFO" "Recorded failure point: CPU: ${failure_cpu}%, Memory: ${failure_mem}% for future reference"
                     
                     # Kill the entire process group to ensure child processes (FFmpeg) are terminated
                     # First try gentle termination of the process group
-                    pkill -TERM -P "$oldest_pid" 2>/dev/null || true
-                    kill -TERM "$oldest_pid" 2>/dev/null || true
+                    pkill -TERM -P "$newest_pid" 2>/dev/null || true
+                    kill -TERM "$newest_pid" 2>/dev/null || true
                     
                     # Wait a moment for graceful termination
                     sleep 3
                     
                     # Force kill any remaining processes in the group
-                    pkill -KILL -P "$oldest_pid" 2>/dev/null || true
-                    kill -KILL "$oldest_pid" 2>/dev/null || true
+                    pkill -KILL -P "$newest_pid" 2>/dev/null || true
+                    kill -KILL "$newest_pid" 2>/dev/null || true
                 fi
                 # Clean up completed jobs to update counts
                 cleanup_completed_jobs
+                
+                # Wait 30-45 seconds after killing a job to let system resources stabilize
+                # before deciding if another job needs to be killed
+                log "INFO" "Waiting 30 seconds for system resources to stabilize after job termination..."
+                sleep 30
+                
+                # Re-check optimal jobs after waiting - system might have recovered
+                local new_optimal_jobs=$(calculate_optimal_jobs)
+                if [[ $CURRENT_JOBS -le $new_optimal_jobs ]]; then
+                    log "INFO" "System resources recovered after job termination. No further reductions needed."
+                    break
+                fi
             else
                 # Safety break if no active PIDs but CURRENT_JOBS > 0
                 log "WARN" "CURRENT_JOBS=$CURRENT_JOBS but no active PIDs, resetting counter"
@@ -567,6 +781,12 @@ main_processing_loop() {
                 break
             fi
         done
+                fi
+            fi
+        else
+            # No overload - clean up overload marker if it exists
+            [[ -f "$overload_marker" ]] && rm -f "$overload_marker"
+        fi
         
         # Wait and monitor
         log "INFO" "Active jobs: $CURRENT_JOBS/$optimal_jobs, Queue: $QUEUE_INDEX/${#CONVERSION_QUEUE[@]}, Processed: $TOTAL_PROCESSED"
