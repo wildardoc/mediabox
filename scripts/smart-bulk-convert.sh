@@ -679,15 +679,29 @@ main_processing_loop() {
                 done < "$failure_history_file"
             fi
             
-            # If we have a single-job baseline, only add jobs if significantly below it
-            if [[ "$can_add_jobs" == "true" && -f "$single_job_baseline_file" ]]; then
+            # If we have a single-job baseline, only add jobs if resources are manageable
+            # BUT: Only apply this check if we already have jobs running
+            # If no jobs are running, high resources are from other processes, not our conversions
+            if [[ "$can_add_jobs" == "true" && -f "$single_job_baseline_file" && $CURRENT_JOBS -gt 0 ]]; then
                 local single_cpu=$(grep "CPU:" "$single_job_baseline_file" | cut -d: -f2)
                 local single_mem=$(grep "MEM:" "$single_job_baseline_file" | cut -d: -f2)
                 
-                # Only try adding if current usage is at least 15% below single-job average
-                if [[ $current_cpu -gt $((single_cpu - 15)) || $current_mem -gt $((single_mem - 15)) ]]; then
-                    log "INFO" "Current resources (CPU: ${current_cpu}%, MEM: ${current_mem}%) too close to single-job baseline (CPU: ${single_cpu}%, MEM: ${single_mem}%). Being conservative."
+                # Only be conservative if current usage is significantly HIGHER than single-job baseline
+                # This indicates system stress beyond what one job normally causes
+                if [[ $current_cpu -gt $((single_cpu + 15)) || $current_mem -gt $((single_mem + 15)) ]]; then
+                    log "INFO" "Current resources (CPU: ${current_cpu}%, MEM: ${current_mem}%) significantly higher than single-job baseline (CPU: ${single_cpu}%, MEM: ${single_mem}%). Being conservative."
                     can_add_jobs=false
+                else
+                    log "INFO" "Current resources (CPU: ${current_cpu}%, MEM: ${current_mem}%) within acceptable range of single-job baseline (CPU: ${single_cpu}%, MEM: ${single_mem}%). Can add jobs."
+                fi
+            elif [[ "$can_add_jobs" == "true" && $CURRENT_JOBS -eq 0 ]]; then
+                # No jobs running - high resources are from other processes
+                # Still be cautious but use different logic
+                if [[ $current_cpu -gt 90 || $current_mem -gt 90 ]]; then
+                    log "INFO" "System resources very high (CPU: ${current_cpu}%, MEM: ${current_mem}%) from other processes. Being cautious about starting conversions."
+                    can_add_jobs=false
+                else
+                    log "INFO" "No conversion jobs running. Current resources (CPU: ${current_cpu}%, MEM: ${current_mem}%) from other processes - safe to start conversion."
                 fi
             fi
             
@@ -824,12 +838,16 @@ cleanup() {
         fi
     done
     
+    # Clean up temporary state files
+    log "INFO" "Cleaning up temporary state files..."
+    rm -f /tmp/smart_convert_* 2>/dev/null || true
+    
     update_stats
     log "INFO" "Smart bulk converter shutdown complete"
     exit 0
 }
 
-trap cleanup SIGINT SIGTERM
+trap cleanup SIGINT SIGTERM EXIT
 
 # Usage function
 usage() {
