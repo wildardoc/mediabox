@@ -199,16 +199,6 @@ if [[ "$AUTO_MODE" == false ]]; then
             echo "# Keep this file in .gitignore to prevent credential exposure"
             echo "PIAUNAME=$pia_username"
             echo "PIAPASS=$pia_password"
-                        echo "CPDAEMONUN=$daemon_user"
-            echo "CPDAEMONPASS=$daemon_pass" 
-            echo "NZBGETUN=$daemon_user"
-            echo "NZBGETPASS=$daemon_pass"
-            
-            # Add Plex credentials if provided
-            if [[ -n "$plex_username" ]]; then
-                echo "PLEX_USERNAME=$plex_username"
-                echo "PLEX_PASSWORD=$plex_password"
-            fi
             
             # Plex notification settings (enabled by default)
             echo "ENABLE_PLEX_NOTIFICATIONS=true"
@@ -223,7 +213,8 @@ fi
 echo ""
 echo "IMPORTANT:"
 echo "- Secure credentials stored in: $SECURE_ENV" 
-echo "- Credentials added to .env file (Docker Compose compatible)"
+echo "- Essential credentials added to .env file (Docker Compose compatible)"
+echo "- Plex username/password kept secure in credentials file only"
 echo "- Ensure .env is in .gitignore to prevent credential exposure"
 if [[ "$AUTO_MODE" == false ]] && [[ -f .env ]]; then
     echo "- Backup created with timestamp"

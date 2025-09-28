@@ -495,7 +495,7 @@ def notify_plex_library_update(file_path, max_retries=2, retry_delay=5, force_re
     """
     
     # Configuration loading
-    plex_url = os.getenv('PLEX_URL', 'http://localhost:32400')
+    plex_url = os.getenv('PLEX_URL', 'http://192.168.86.2:32400')
     plex_token = os.getenv('PLEX_TOKEN', '')
     
     if not plex_token:
