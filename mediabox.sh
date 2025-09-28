@@ -573,7 +573,6 @@ if ! docker-compose --profile full up -d --remove-orphans; then
     echo "💡 Try running: docker-compose --profile full logs"
     exit 1
 fi
-fi
 echo "✅ Docker containers started successfully"
 
 # Verify virtual environment is accessible in containers
@@ -843,7 +842,7 @@ EOF
 
 # Setup log rotation cron job
 echo "Setting up automatic log rotation..."
-CRON_ENTRY="0 2 * * 0 cd $SCRIPTS_DIR && ./rotate-logs.sh >> $SCRIPTS_DIR/log-rotation.log 2>&1"
+CRON_ENTRY="0 2 * * 0 cd $SCRIPTS_DIR && ./rotate-logs.sh >> $SCRIPTS_DIR/log-rotation_\$(date +\%Y\%m\%d_\%H\%M\%S).log 2>&1"
 CRON_COMMENT="# Mediabox log rotation - runs weekly on Sundays at 2 AM"
 
 # Check if cron job already exists
@@ -857,7 +856,7 @@ fi
 
 # Setup media cleanup cron job  
 echo "Setting up automatic media cleanup..."
-CLEANUP_CRON_ENTRY="0 3 * * 1 cd $SCRIPTS_DIR && python3 remove_files.py >> $SCRIPTS_DIR/cleanup_downloads.log 2>&1"
+CLEANUP_CRON_ENTRY="0 3 * * 1 cd $SCRIPTS_DIR && python3 remove_files.py >> $SCRIPTS_DIR/cleanup_downloads_\$(date +\%Y\%m\%d_\%H\%M\%S).log 2>&1"
 CLEANUP_CRON_COMMENT="# Mediabox media cleanup - runs weekly on Mondays at 3 AM"
 
 # Check if cleanup cron job already exists
@@ -871,7 +870,7 @@ fi
 
 # Setup conversion cleanup cron job (runs on system boot only)
 echo "Setting up automatic conversion cleanup..."
-CONVERSION_CLEANUP_CRON_ENTRY_BOOT="@reboot cd $SCRIPTS_DIR && ./cleanup-conversions.sh --live >> $SCRIPTS_DIR/cleanup-conversions.log 2>&1"
+CONVERSION_CLEANUP_CRON_ENTRY_BOOT="@reboot cd $SCRIPTS_DIR && ./cleanup-conversions.sh --live >> $SCRIPTS_DIR/cleanup-conversions_\$(date +\%Y\%m\%d_\%H\%M\%S).log 2>&1"
 CONVERSION_CLEANUP_CRON_COMMENT="# Mediabox conversion cleanup - runs on boot to clean up any corruption from unexpected shutdown"
 
 # Check if conversion cleanup cron job already exists
@@ -1016,10 +1015,10 @@ echo "  - Media conversion: cd $SCRIPTS_DIR && python3 media_update.py --dir [pa
 echo ""
 echo "Log locations:"
 echo "  - Webhook activity: $SCRIPTS_DIR/import_YYYYMMDD.log"
-echo "  - Media processing: $SCRIPTS_DIR/media_update_YYYYMMDD.log"
-echo "  - Log rotation: $SCRIPTS_DIR/log-rotation.log"
-echo "  - Media cleanup: $SCRIPTS_DIR/cleanup_downloads.log"
-echo "  - Conversion cleanup: $SCRIPTS_DIR/cleanup-conversions.log"
+echo "  - Media processing: $SCRIPTS_DIR/media_update_YYYYMMDDHHMMSS.log"
+echo "  - Log rotation: $SCRIPTS_DIR/log-rotation_YYYYMMDD_HHMMSS.log"
+echo "  - Media cleanup: $SCRIPTS_DIR/cleanup_downloads_YYYYMMDD_HHMMSS.log"
+echo "  - Conversion cleanup: $SCRIPTS_DIR/cleanup-conversions_YYYYMMDD_HHMMSS.log"
 echo "  - Retention policy: 14 days uncompressed, 90 days compressed, then deleted"
 echo ""
 

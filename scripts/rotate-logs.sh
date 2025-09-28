@@ -31,7 +31,7 @@ fi
 echo "Deleting logs older than 90 days..."
 
 # Process each log type separately for deletion
-for pattern in "media_update_*.log" "import_*.log" "smart_bulk_convert_*.log" "cleanup_conversions_*.log" "media_update_*.log.gz" "import_*.log.gz" "smart_bulk_convert_*.log.gz" "cleanup_conversions_*.log.gz"; do
+for pattern in "media_update_*.log" "import_*.log" "smart_bulk_convert_*.log" "cleanup_conversions_*.log" "cleanup_downloads_*.log" "log-rotation_*.log" "media_update_*.log.gz" "import_*.log.gz" "smart_bulk_convert_*.log.gz" "cleanup_conversions_*.log.gz" "cleanup_downloads_*.log.gz" "log-rotation_*.log.gz"; do
     count=$(find . -name "$pattern" -type f -mtime +90 2>/dev/null | wc -l)
     if [[ $count -gt 0 ]]; then
         echo "Deleting $count old $pattern files..."
@@ -44,7 +44,7 @@ done
 echo "Compressing logs older than 14 days..."
 
 # Process each log type separately
-for pattern in "media_update_*.log" "import_*.log" "smart_bulk_convert_*.log" "cleanup_conversions_*.log"; do
+for pattern in "media_update_*.log" "import_*.log" "smart_bulk_convert_*.log" "cleanup_conversions_*.log" "cleanup_downloads_*.log" "log-rotation_*.log"; do
     while IFS= read -r -d '' file; do
         if [[ -f "$file" && ! -f "$file.gz" ]]; then
             echo "Compressing: $file"
@@ -61,20 +61,12 @@ find . -name "media_update_*.log" -type f -size 0 -delete 2>/dev/null
 find . -name "import_*.log" -type f -size 0 -delete 2>/dev/null
 find . -name "smart_bulk_convert_*.log" -type f -size 0 -delete 2>/dev/null
 find . -name "cleanup_conversions_*.log" -type f -size 0 -delete 2>/dev/null
+find . -name "cleanup_downloads_*.log" -type f -size 0 -delete 2>/dev/null
+find . -name "log-rotation_*.log" -type f -size 0 -delete 2>/dev/null
 
-# 4. Handle persistent log files (no timestamps) - rotate if larger than 10MB
-echo "Rotating large persistent log files..."
-for logfile in cleanup_downloads.log log-rotation.log; do
-    if [[ -f "$logfile" ]]; then
-        size=$(stat -f%z "$logfile" 2>/dev/null || stat -c%s "$logfile" 2>/dev/null || echo 0)
-        if [[ $size -gt 10485760 ]]; then  # 10MB
-            timestamp=$(date +%Y%m%d_%H%M%S)
-            echo "Rotating large log file: $logfile ($(numfmt --to=iec $size 2>/dev/null || echo "${size} bytes"))"
-            mv "$logfile" "${logfile%.log}_${timestamp}.log"
-            touch "$logfile"  # Create new empty log
-        fi
-    fi
-done
+# 4. Clean up any remaining empty log files  
+echo "Cleaning up empty log files..."
+find . -name "*.log" -type f -size 0 -delete 2>/dev/null
 
 # Calculate total size after cleanup
 if command -v du >/dev/null 2>&1; then

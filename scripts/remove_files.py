@@ -71,6 +71,7 @@ import time
 import ffmpeg
 import logging
 import argparse
+from datetime import datetime
 
 MEDIA_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv',
               '.mp3', '.flac', '.aac', '.ogg', '.wav', '.m4a', '.alac', '.opus')
@@ -338,7 +339,7 @@ def should_delete_music(file_path, library_music_dir, dry_run=False):
 def main():
     parser = argparse.ArgumentParser(description="Remove old or duplicate media files safely.")
     parser.add_argument('--dry-run', action='store_true', help="Simulate deletions without removing files.")
-    parser.add_argument('--log-file', default="cleanup_downloads.log", help="Path to the log file.")
+    parser.add_argument('--log-file', default=f"cleanup_downloads_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log", help="Path to the log file.")
     args = parser.parse_args()
     setup_logging(args.log_file)
 

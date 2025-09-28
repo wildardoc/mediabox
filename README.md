@@ -457,8 +457,10 @@ cd scripts && ./rotate-logs.sh
 zcat media_update_*.log.gz | less
 
 # Check automation history
-cat scripts/log-rotation.log
-cat scripts/cleanup_downloads.log
+ls scripts/log-rotation_*.log scripts/cleanup_downloads_*.log
+# View latest automation logs
+tail -50 scripts/log-rotation_*.log | tail -1
+tail -50 scripts/cleanup_downloads_*.log | tail -1
 ```
 
 **Automatic Cleanup Features:**

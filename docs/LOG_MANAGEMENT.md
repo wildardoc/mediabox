@@ -12,7 +12,7 @@ Mediabox automatically manages log files to prevent disk space issues while main
 Log rotation runs automatically via cron:
 - **Schedule**: Every Sunday at 2:00 AM
 - **Command**: `/Storage/docker/mediabox/scripts/rotate-logs.sh`
-- **Output**: Logged to `/Storage/docker/mediabox/scripts/log-rotation.log`
+- **Output**: Logged to `/Storage/docker/mediabox/scripts/log-rotation_YYYYMMDD_HHMMSS.log`
 
 ## Manual Log Management
 
@@ -24,7 +24,9 @@ cd /Storage/docker/mediabox/scripts
 
 ### Check log rotation history:
 ```bash
-cat /Storage/docker/mediabox/scripts/log-rotation.log
+ls /Storage/docker/mediabox/scripts/log-rotation_*.log
+# View latest log rotation log
+cat /Storage/docker/mediabox/scripts/log-rotation_*.log | tail -50
 ```
 
 ### View compressed logs:
@@ -49,9 +51,9 @@ zgrep "ERROR" media_update_20250808225651.log.gz
 - **Size**: Typically small (KB to low MB)
 
 ### Log Rotation Logs
-- **File**: `log-rotation.log`
+- **Pattern**: `log-rotation_YYYYMMDD_HHMMSS.log`
 - **Content**: History of rotation operations, space savings
-- **Retention**: Not rotated (kept indefinitely, but stays small)
+- **Retention**: Managed by log rotation system
 
 ## Troubleshooting
 
