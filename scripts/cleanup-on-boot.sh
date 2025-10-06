@@ -59,7 +59,7 @@ docker-compose ps --format "table {{.Name}}\t{{.Status}}" | tee -a "$LOG_FILE"
 log "INFO" "Verifying media directories..."
 for dir in "/Storage/media/movies" "/Storage/media/tv"; do
     if [[ -d "$dir" && -r "$dir" ]]; then
-        file_count=$(find "$dir" -name "*.mkv" -o -name "*.mp4" | wc -l)
+        file_count=$(find "$dir" \( -name "*.mkv" -o -name "*.mp4" -o -name "*.m2ts" \) | wc -l)
         log "INFO" "Directory $dir accessible with $file_count video files"
     else
         log "ERROR" "Directory $dir not accessible!"

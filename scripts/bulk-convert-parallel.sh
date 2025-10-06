@@ -82,10 +82,10 @@ run_parallel_conversion() {
     
     # Create file list
     local file_list="$LOG_DIR/${description,,}-files.txt"
-    find "$dir" -type f -name "*.mkv" > "$file_list"
+    find "$dir" -type f \( -name "*.mkv" -o -name "*.m2ts" \) > "$file_list"
     
     local total_files=$(wc -l < "$file_list")
-    log_message "📊 Found $total_files MKV files to process with $MAX_JOBS parallel jobs"
+    log_message "📊 Found $total_files MKV/M2TS files to process with $MAX_JOBS parallel jobs"
     
     if [[ $total_files -eq 0 ]]; then
         log_message "✅ No MKV files found in $description"

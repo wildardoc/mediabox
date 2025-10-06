@@ -60,7 +60,7 @@ process_directory() {
     local mkv_files=()
     while IFS= read -r -d '' file; do
         mkv_files+=("$file")
-    done < <(find "$dir" -type f -name "*.mkv" -print0)
+    done < <(find "$dir" -type f \( -name "*.mkv" -o -name "*.m2ts" \) -print0)
     
     local total_files=${#mkv_files[@]}
     local processed=0

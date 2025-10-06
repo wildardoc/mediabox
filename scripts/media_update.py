@@ -304,8 +304,26 @@ for sig in (signal.SIGINT, signal.SIGTERM):
     signal.signal(sig, lambda signum, frame: (cleanup_unfinished_file(), exit(1)))
 
 # Define supported video and audio file extensions as module-level constants
-VIDEO_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv')
+VIDEO_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.m2ts')
 AUDIO_EXTS = ('.flac', '.wav', '.aiff', '.ape', '.wv', '.m4a', '.ogg', '.opus', '.wma')
+
+# AAC Quality Settings
+AAC_QUALITY_VBR = '2'  # Variable bitrate quality (1=highest, 5=lowest)
+AAC_BITRATE_CBR = '192k'  # Constant bitrate fallback
+
+# Audio Filter Settings (included in track names for version tracking)
+CENTER_BOOST = '0.5'  # Center channel boost level
+FRONT_MIX = '0.35'    # Front channel mix level  
+SURROUND_MIX = '0.25' # Surround channel mix level
+COMPRESSOR_RATIO = '6'      # Dynamic range compression ratio
+COMPRESSOR_THRESHOLD = '0.1' # Compression threshold
+COMPRESSOR_ATTACK = '20'     # Attack time
+COMPRESSOR_RELEASE = '250'   # Release time
+
+# Track Title Templates with Filter Settings
+ENHANCED_STEREO_TITLE = f'English Stereo (C{CENTER_BOOST}-R{COMPRESSOR_RATIO}-AAC-VBR{AAC_QUALITY_VBR})'
+FORCE_STEREO_TITLE = f'English Stereo (Dialogue-C{CENTER_BOOST}-R{COMPRESSOR_RATIO}-AAC-VBR{AAC_QUALITY_VBR})'
+STANDARD_STEREO_TITLE = f'English Stereo (AAC-CBR{AAC_BITRATE_CBR})'
 
 def detect_hardware_acceleration():
     """
@@ -975,12 +993,21 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False):
                 
                 # Check if we have existing stereo and 5.1 tracks
                 has_existing_stereo = False
+                has_existing_enhanced_stereo = False
                 has_existing_51 = False
                 for other_stream in probe['streams']:
                     if other_stream['codec_type'] == 'audio' and other_stream['index'] != surround_idx:
                         other_channels = int(other_stream.get('channels', 0))
                         if other_channels == 2:
                             has_existing_stereo = True
+                            # Check if this is already an enhanced stereo track with current settings
+                            track_title = other_stream.get('tags', {}).get('title', '')
+                            current_settings_pattern = f'C{CENTER_BOOST}-R{COMPRESSOR_RATIO}'
+                            if current_settings_pattern in track_title or 'Dialogue-' + current_settings_pattern in track_title:
+                                has_existing_enhanced_stereo = True
+                                logging.info(f"Found existing enhanced stereo track with current settings: '{track_title}'")
+                            elif 'English Stereo' in track_title and ('AAC-VBR' in track_title or 'Enhanced' in track_title):
+                                logging.info(f"Found enhanced stereo track with different settings: '{track_title}' - will be re-processed")
                         elif other_channels == 6:
                             has_existing_51 = True
                 
@@ -992,27 +1019,31 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False):
                         should_create_51_from_71 = True
                         logging.info(f"Will create 5.1 from 7.1 surround stream {surround_idx}")
                     
-                    # Create stereo if we don't have existing stereo OR if forced
-                    if not has_existing_stereo or force_stereo:
+                    # Create stereo if we don't have existing enhanced stereo OR if forced
+                    if not has_existing_enhanced_stereo or force_stereo:
                         should_create_stereo = True
-                        if force_stereo and has_existing_stereo:
-                            logging.info(f"Force creating enhanced stereo from processable surround stream {surround_idx} (existing stereo will be replaced)")
+                        if force_stereo and has_existing_enhanced_stereo:
+                            logging.info(f"Force creating enhanced stereo from processable surround stream {surround_idx} (existing enhanced stereo will be replaced)")
+                        elif has_existing_stereo and not has_existing_enhanced_stereo:
+                            logging.info(f"Will create enhanced stereo from processable surround stream {surround_idx} (upgrading basic stereo track)")
                         else:
                             logging.info(f"Will create enhanced stereo from processable surround stream {surround_idx}")
                     else:
-                        logging.info(f"Skipping stereo creation - existing stereo track found")
+                        logging.info(f"Skipping stereo creation - existing enhanced stereo track found")
                         
                 elif channel_layout == 'unknown' and channels == 6:
                     # 6-channel unknown layout can be fixed with channelmap filter
                     surround_has_processable_layout = True
-                    if not has_existing_stereo or force_stereo:
+                    if not has_existing_enhanced_stereo or force_stereo:
                         should_create_stereo = True
-                        if force_stereo and has_existing_stereo:
-                            logging.info(f"Force creating enhanced stereo from 6-channel unknown layout (fixable with channelmap) stream {surround_idx} (existing stereo will be replaced)")
+                        if force_stereo and has_existing_enhanced_stereo:
+                            logging.info(f"Force creating enhanced stereo from 6-channel unknown layout (fixable with channelmap) stream {surround_idx} (existing enhanced stereo will be replaced)")
+                        elif has_existing_stereo and not has_existing_enhanced_stereo:
+                            logging.info(f"Will create enhanced stereo from 6-channel unknown layout (fixable with channelmap) stream {surround_idx} (upgrading basic stereo track)")
                         else:
                             logging.info(f"Will create enhanced stereo from 6-channel unknown layout (fixable with channelmap) stream {surround_idx}")
                     else:
-                        logging.info(f"Skipping stereo creation - existing stereo track found")
+                        logging.info(f"Skipping stereo creation - existing enhanced stereo track found")
                 elif channel_layout == 'unknown' and channels == 8:
                     # 8-channel unknown layout - could be 7.1, but we can't process unknown layouts safely
                     surround_has_processable_layout = True
@@ -1127,12 +1158,12 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False):
             # Original formula: c0=0.4*c0+0.283*c2+0.4*c4|c1=0.4*c1+0.283*c3+0.4*c5
             # Enhanced formula: boost center from 0.283 to 0.5 for better dialogue, reduce surrounds slightly
             # Note: Center channel boost only applied to stereo downmix, not to 5.1 creation
-            stereo_filter = f'{surround_source_for_stereo}pan=stereo|c0=0.35*c0+0.5*c2+0.25*c4|c1=0.35*c1+0.5*c2+0.25*c5,acompressor=level_in=1.5:threshold=0.1:ratio=6:attack=20:release=250[aout]'
+            stereo_filter = f'{surround_source_for_stereo}pan=stereo|c0={FRONT_MIX}*c0+{CENTER_BOOST}*c2+{SURROUND_MIX}*c4|c1={FRONT_MIX}*c1+{CENTER_BOOST}*c2+{SURROUND_MIX}*c5,acompressor=level_in=1.5:threshold={COMPRESSOR_THRESHOLD}:ratio={COMPRESSOR_RATIO}:attack={COMPRESSOR_ATTACK}:release={COMPRESSOR_RELEASE}[aout]'
             
             if surround_channels == 8:
-                logging.info("Creating enhanced stereo from 7.1/5.1 with boosted center channel (0.5) for better dialogue")
+                logging.info(f"Creating enhanced stereo from 7.1/5.1 with boosted center channel ({CENTER_BOOST}) and compression (R{COMPRESSOR_RATIO}) for better dialogue")
             else:  # 5.1 or 6-channel input
-                logging.info("Creating enhanced stereo from 5.1 with boosted center channel (0.5) for better dialogue")
+                logging.info(f"Creating enhanced stereo from 5.1 with boosted center channel ({CENTER_BOOST}) and compression (R{COMPRESSOR_RATIO}) for better dialogue")
             
             if not filter_complex:
                 filter_complex = ['-filter_complex', stereo_filter]
@@ -1141,9 +1172,12 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False):
                 filter_complex[1] = filter_complex[1] + '; ' + stereo_filter
                 
             audio_maps += ['-map', '[aout]']
-            # Generated stereo track gets English language tag and appropriate title
-            stereo_title = 'Stereo (Enhanced)' if not force_stereo else 'Stereo (Enhanced Dialogue)'
-            audio_labels += [f'-metadata:s:a:{next_audio_idx}', f'title={stereo_title}', f'-metadata:s:a:{next_audio_idx}', f'language={surround_lang}']
+            # Generated stereo track gets English language tag and appropriate title with filter settings
+            if force_stereo:
+                stereo_title = FORCE_STEREO_TITLE
+            else:
+                stereo_title = ENHANCED_STEREO_TITLE
+            audio_labels += [f'-metadata:s:a:{next_audio_idx}', f'title={stereo_title}', f'-metadata:s:a:{next_audio_idx}', 'language=eng']
     
     # Handle existing stereo tracks if we have surround but didn't create stereo from it
     if surround_idx is not None and not should_create_stereo:
@@ -1167,7 +1201,7 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False):
                     if should_create_51_from_71:
                         current_audio_idx += 1  # Account for 5.1 track
                     
-                    audio_labels += [f'-metadata:s:a:{current_audio_idx}', 'title=Stereo', f'-metadata:s:a:{current_audio_idx}', 'language=eng']
+                    audio_labels += [f'-metadata:s:a:{current_audio_idx}', f'title={STANDARD_STEREO_TITLE}', f'-metadata:s:a:{current_audio_idx}', 'language=eng']
                     stereo_mapped = True
                     break
         
@@ -1190,7 +1224,7 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False):
                         logging.info(f"Fallback: Using unlabeled audio stream {idx} (tagging as English)")
                     
                     audio_maps += ['-map', f'0:{idx}']
-                    audio_labels += ['-metadata:s:a:0', 'title=Stereo', '-metadata:s:a:0', 'language=eng']
+                    audio_labels += ['-metadata:s:a:0', f'title={STANDARD_STEREO_TITLE}', '-metadata:s:a:0', 'language=eng']
                     fallback_found = True
                     break
                 else:
@@ -1252,7 +1286,7 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False):
                             if original_layout == 'unknown' or original_layout == '':
                                 # For 6-channel audio with unknown layout, use channelmap filter to fix to 5.1
                                 if stream.get('channels', 0) == 6:
-                                    audio_codec_args.extend([f'-c:a:{output_audio_idx}', 'aac'])
+                                    audio_codec_args.extend([f'-c:a:{output_audio_idx}', 'aac', f'-b:a:{output_audio_idx}', AAC_BITRATE_CBR])
                                     logging.info(f"Fixing unknown 6-channel layout using channelmap filter to 5.1 for output audio stream {output_audio_idx}")
                                 else:
                                     # For other channel counts with unknown layout, use stream copy
@@ -1260,7 +1294,7 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False):
                                     logging.info(f"Using stream copy for output audio stream {output_audio_idx} (unknown layout, not 6-channel)")
                             else:
                                 # Re-encode with AAC and preserve channel layout
-                                audio_codec_args.extend([f'-c:a:{output_audio_idx}', 'aac'])
+                                audio_codec_args.extend([f'-c:a:{output_audio_idx}', 'aac', f'-b:a:{output_audio_idx}', AAC_BITRATE_CBR])
                                 if original_layout:
                                     # Normalize common layout names for FFmpeg compatibility
                                     if original_layout == '5.1(side)':
@@ -1275,8 +1309,11 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False):
                 except (ValueError, IndexError):
                     pass  # Skip malformed map specs
             elif map_spec.startswith('['):  # Filter output (created tracks like 5.1 from 7.1, stereo, etc.)
-                # Filter-generated tracks always use AAC
-                audio_codec_args.extend([f'-c:a:{output_audio_idx}', 'aac'])
+                # Filter-generated tracks always use AAC with quality settings
+                if map_spec == '[aout]':  # Enhanced stereo track
+                    audio_codec_args.extend([f'-c:a:{output_audio_idx}', 'aac', f'-q:a:{output_audio_idx}', AAC_QUALITY_VBR])
+                else:  # Other generated tracks (5.1 from 7.1)
+                    audio_codec_args.extend([f'-c:a:{output_audio_idx}', 'aac', f'-b:a:{output_audio_idx}', AAC_BITRATE_CBR])
                 
                 # Set appropriate channel layout for filter outputs
                 if map_spec == '[surround_51]':
@@ -1410,7 +1447,22 @@ def transcode_file(input_file, force_stereo=False):
                             has_processable_surround = True
             
             # Determine what tracks need to be created
-            needs_stereo_track = has_processable_surround and (not has_stereo or force_stereo)
+            # Check if we need enhanced stereo based on existing tracks with current settings
+            has_enhanced_stereo = False
+            if has_stereo:
+                for stream in probe['streams']:
+                    if (stream['codec_type'] == 'audio' and 
+                        int(stream.get('channels', 0)) == 2):
+                        track_title = stream.get('tags', {}).get('title', '')
+                        current_settings_pattern = f'C{CENTER_BOOST}-R{COMPRESSOR_RATIO}'
+                        if current_settings_pattern in track_title or 'Dialogue-' + current_settings_pattern in track_title:
+                            has_enhanced_stereo = True
+                            logging.info(f"Found existing enhanced stereo with current settings: '{track_title}'")
+                            break
+                        elif 'English Stereo' in track_title and ('AAC-VBR' in track_title or 'Enhanced' in track_title):
+                            logging.info(f"Found enhanced stereo with outdated settings: '{track_title}' - will re-process")
+            
+            needs_stereo_track = has_processable_surround and (not has_enhanced_stereo or force_stereo)
             needs_51_from_71 = has_71 and not has_51 and has_processable_surround
             
             # Check if audio metadata needs fixing

@@ -73,7 +73,7 @@ import logging
 import argparse
 from datetime import datetime
 
-MEDIA_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv',
+MEDIA_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.m2ts',
               '.mp3', '.flac', '.aac', '.ogg', '.wav', '.m4a', '.alac', '.opus')
 DAYS_OLD = 7
 BITRATE_TOLERANCE = 1000000

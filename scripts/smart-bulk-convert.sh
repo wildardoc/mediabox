@@ -353,7 +353,7 @@ build_conversion_queue() {
     update_stats
     
     # Video extensions that media_update.py processes
-    local video_extensions=("mkv" "mp4" "avi" "mov" "wmv" "flv")
+    local video_extensions=("mkv" "mp4" "avi" "mov" "wmv" "flv" "m2ts")
     local files_scanned=0
     
     # Find all video files that need conversion in all target directories

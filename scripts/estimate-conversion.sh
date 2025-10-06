@@ -8,22 +8,22 @@ echo "📊 BULK CONVERSION PLANNING"
 echo "=================================="
 
 # Count files
-movie_mkvs=$(find "$MOVIEDIR" -type f -name "*.mkv" | wc -l)
-tv_mkvs=$(find "$TVDIR" -type f -name "*.mkv" | wc -l)
+movie_mkvs=$(find "$MOVIEDIR" -type f \( -name "*.mkv" -o -name "*.m2ts" \) | wc -l)
+tv_mkvs=$(find "$TVDIR" -type f \( -name "*.mkv" -o -name "*.m2ts" \) | wc -l)
 total_mkvs=$((movie_mkvs + tv_mkvs))
 
 echo "📁 File counts:"
-echo "  Movies (MKV):    $movie_mkvs files"
-echo "  TV Shows (MKV):  $tv_mkvs files"
+echo "  Movies (MKV/M2TS): $movie_mkvs files"
+echo "  TV Shows (MKV/M2TS): $tv_mkvs files"
 echo "  Total to convert: $total_mkvs files"
 echo ""
 
 # Size analysis
 echo "💾 Storage analysis:"
-movie_size=$(find "$MOVIEDIR" -name "*.mkv" -exec du -ch {} + 2>/dev/null | tail -1 | cut -f1)
-tv_size=$(find "$TVDIR" -name "*.mkv" -exec du -ch {} + 2>/dev/null | tail -1 | cut -f1)
-echo "  Movies (MKV):    $movie_size"
-echo "  TV Shows (MKV):  $tv_size"
+movie_size=$(find "$MOVIEDIR" \( -name "*.mkv" -o -name "*.m2ts" \) -exec du -ch {} + 2>/dev/null | tail -1 | cut -f1)
+tv_size=$(find "$TVDIR" \( -name "*.mkv" -o -name "*.m2ts" \) -exec du -ch {} + 2>/dev/null | tail -1 | cut -f1)
+echo "  Movies (MKV/M2TS): $movie_size"
+echo "  TV Shows (MKV/M2TS): $tv_size"
 
 # Get available disk space
 available=$(df -h "$MOVIEDIR" | awk 'NR==2 {print $4}')

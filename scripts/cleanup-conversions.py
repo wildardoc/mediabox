@@ -158,7 +158,7 @@ class ConversionCleanup:
         self.validator = MediaValidator()
         
         # Common video extensions
-        self.source_extensions = {'.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.ts'}
+        self.source_extensions = {'.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.ts', '.m2ts'}
         self.target_extension = '.mp4'
         
         # Statistics
