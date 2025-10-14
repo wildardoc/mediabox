@@ -79,7 +79,7 @@ wait_for_plex_service() {
     
     for attempt in $(seq 1 $max_attempts); do
         # First check if container is running
-        if ! docker-compose ps plex | grep -q "Up"; then
+        if ! docker compose ps plex | grep -q "Up"; then
             printf "⚠️  Plex container not running (attempt $attempt/$max_attempts)\\n"
             sleep 10
             continue
@@ -143,19 +143,9 @@ test_network_connectivity
 
 # See if we need to check GIT for updates
 if [ -e .env ]; then
-    # Check for Updated Docker-Compose
-    printf "Checking for update to Docker-Compose (If needed - You will be prompted for SUDO credentials).\\n\\n"
-    onlinever=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep "tag_name" | cut -d ":" -f2 | sed 's/"//g' | sed 's/,//g' | sed 's/ //g')
-    printf "Current online version is: %s \\n" "$onlinever"
-    localver=$(docker-compose -v | cut -d " " -f4 | sed 's/,//g')
-    printf "Current local version is: %s \\n" "$localver"
-    if [ "$localver" != "$onlinever" ]; then
-        sudo curl -s https://api.github.com/repos/docker/compose/releases/latest | grep "browser_download_url" | grep -i -m1 "$(uname -s)"-"$(uname -m)" | cut -d '"' -f4 | xargs sudo curl -L -o /usr/local/bin/docker-compose
-        sudo chmod +x /usr/local/bin/docker-compose
-        printf "\\n\\n"
-    else
-        printf "No Docker-Compose Update needed.\\n\\n"
-    fi
+    # Docker Compose V2 is included with Docker CE and updates automatically
+    printf "Docker Compose V2 updates with Docker Engine - no separate update needed.\\n\\n"
+    
     # Check for updates to the Mediabox repo
     printf "Updating your local copy of Mediabox.\\n\\n"
     printf "If this file 'mediabox.sh' is updated it will be re-run automatically.\\n\\n"
@@ -208,9 +198,9 @@ if [ -e 1.env ]; then
     mv 1.env .env
     # Stop the current Mediabox stack
     printf "\\n\\nStopping Current Mediabox containers.\\n\\n"
-    if ! docker-compose stop; then
+    if ! docker compose stop; then
         echo "❌ Failed to stop Mediabox containers"
-        echo "💡 You may need to stop containers manually: docker-compose stop"
+        echo "💡 You may need to stop containers manually: docker compose stop"
         exit 1
     fi
     echo "✅ Mediabox containers stopped successfully"
@@ -516,13 +506,18 @@ cat << EOF > .env
 ###  M E D I A B O X   C O N F I G   S E T T I N G S
 ###  ------------------------------------------------
 ###  The values configured here are applied during
-###  $ docker-compose up
+###  $ docker compose up
 ###  -----------------------------------------------
-###  DOCKER-COMPOSE ENVIRONMENT VARIABLES BEGIN HERE
+###  DOCKER COMPOSE ENVIRONMENT VARIABLES BEGIN HERE
 ###  -----------------------------------------------
 ###
 EOF
 {
+echo "# Default profiles to run when no --profile flag is specified"
+echo "# Options: core, full, music, usenet, plex, monitoring, requests, maintenance"
+echo "# Use comma-separated list for multiple profiles (e.g., \"core,plex,monitoring\")"
+echo "COMPOSE_PROFILES=full"
+echo ""
 echo "LOCALUSER=$localuname"
 echo "HOSTNAME=$thishost"
 echo "IP_ADDRESS=$locip"
@@ -567,10 +562,11 @@ echo "This may take a while depending on your download speed"
 read -r -p "Press any key to continue... " -n1 -s
 printf "\\n\\n"
 echo "📥 Starting Docker containers..."
-if ! docker-compose --profile full up -d --remove-orphans; then
+echo "Using profile: \${COMPOSE_PROFILES:-full} (override with --profile flag if needed)"
+if ! docker compose up -d --remove-orphans; then
     echo "❌ Failed to start Docker containers"
     echo "💡 Please check docker-compose.yml and .env files for errors"
-    echo "💡 Try running: docker-compose --profile full logs"
+    echo "💡 Try running: docker compose logs"
     exit 1
 fi
 echo "✅ Docker containers started successfully"

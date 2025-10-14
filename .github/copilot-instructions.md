@@ -12,7 +12,6 @@ Mediabox is a security-hardened, Docker-based media aggregator stack with automa
 - Install system updates: `sudo apt update && sudo apt full-upgrade`
 - Install dependencies: `sudo apt install curl git bridge-utils`
 - Install Docker CE: `curl -fsSL https://get.docker.com -o get-docker.sh && sudo sh get-docker.sh`
-- Install Docker-Compose: `sudo curl -s https://api.github.com/repos/docker/compose/releases/latest | grep "browser_download_url" | grep -i -m1 "$(uname -s)"-"$(uname -m)" | cut -d '"' -f4 | xargs sudo curl -L -o /usr/local/bin/docker-compose && sudo chmod +x /usr/local/bin/docker-compose`
 - Configure Docker: `sudo usermod -aG docker $USER`
 - Load kernel module: `sudo /sbin/modprobe iptable_mangle && sudo bash -c "echo iptable_mangle >> /etc/modules"`
 - **REBOOT REQUIRED**: `sudo reboot`
@@ -20,14 +19,14 @@ Mediabox is a security-hardened, Docker-based media aggregator stack with automa
 ### **Mediabox Deployment**
 - Clone repository: `git clone https://github.com/wildardoc/mediabox.git && cd mediabox/`
 - **NEVER CANCEL**: Run setup: `./mediabox.sh` -- takes 5-15 minutes depending on setup complexity. Set timeout to 30+ minutes.
-- **Docker image pull**: `docker-compose pull` -- takes ~1 minute
-- **Container startup**: `docker-compose up -d` -- takes ~10 seconds
-- **Container shutdown**: `docker-compose down` -- takes ~7 seconds
+- **Docker image pull**: `docker compose pull` -- takes ~1 minute
+- **Container startup**: `docker compose up -d` -- takes ~10 seconds
+- **Container shutdown**: `docker compose down` -- takes ~7 seconds
 
 ### **System Requirements**
-- **Operating System**: Ubuntu 18.04 LTS / 20.04 LTS (Server or Desktop)
+- **Operating System**: Ubuntu 18.04 LTS / 20.04 LTS / 22.04 LTS / 24.04 LTS (Server or Desktop)
 - **VPN**: Private Internet Access (PIA) account required for torrent functionality
-- **Dependencies**: Docker, Docker-Compose, Python3, FFmpeg (auto-installed)
+- **Dependencies**: Docker CE (includes Compose V2), Python3, FFmpeg (auto-installed)
 - **Disk Space**: Plan for significant media storage requirements
 
 ## ✅ **CRITICAL System Validation**
@@ -36,7 +35,7 @@ After any changes, ALWAYS run these validation steps:
 
 ### **1. Container Health Check**
 ```bash
-docker-compose ps
+docker compose ps
 # All containers should show "Up" status
 ```
 
@@ -62,7 +61,7 @@ cd scripts && python3 media_update.py --help
 - **Setup Test**: Run `./mediabox.sh` with test credentials to validate complete deployment
 - **Container Test**: Start all containers and verify web interfaces respond
 - **Media Test**: Place sample media in downloads directory and test conversion scripts
-- **ALWAYS verify Docker containers are accessible**: Use `docker-compose logs [service]` to debug issues
+- **ALWAYS verify Docker containers are accessible**: Use `docker compose logs [service]` to debug issues
 
 ## Docker Services (12 Containers)
 
@@ -183,8 +182,8 @@ zcat media_update_*.log.gz | less
 ## Troubleshooting
 
 ### Common Issues:
-- **Container fails to start**: Check `docker-compose logs [service]` for specific errors
-- **Web interface not accessible**: Verify container is "Up" with `docker-compose ps`
+- **Container fails to start**: Check `docker compose logs [service]` for specific errors
+- **Web interface not accessible**: Verify container is "Up" with `docker compose ps`
 - **Media processing errors**: Check `scripts/media_update_*.log` for FFmpeg errors
 - **Webhook failures**: Check `scripts/import_*.log` for integration issues
 - **VPN connection issues**: Verify PIA credentials in secure environment file
@@ -192,26 +191,26 @@ zcat media_update_*.log.gz | less
 ### Debugging Commands:
 ```bash
 # Container status
-docker-compose ps
+docker compose ps
 
 # Service logs
-docker-compose logs sonarr
-docker-compose logs radarr
+docker compose logs sonarr
+docker compose logs radarr
 
 # Restart specific service
-docker-compose restart sonarr
+docker compose restart sonarr
 
 # Complete system restart
-docker-compose down && docker-compose up -d
+docker compose down && docker compose up -d
 ```
 
 ## Performance & Timing Expectations
 
 ### CRITICAL - NEVER CANCEL Operations:
 - **Initial Setup**: `./mediabox.sh` takes 5-15 minutes - NEVER CANCEL, set timeout to 30+ minutes
-- **Docker Image Pull**: `docker-compose pull` takes ~1 minute - Set timeout to 5+ minutes  
-- **Container Startup**: `docker-compose up -d` takes ~10 seconds - Set timeout to 2+ minutes
-- **Container Shutdown**: `docker-compose down` takes ~7 seconds - Set timeout to 1+ minute
+- **Docker Image Pull**: `docker compose pull` takes ~1 minute - Set timeout to 5+ minutes  
+- **Container Startup**: `docker compose up -d` takes ~10 seconds - Set timeout to 2+ minutes
+- **Container Shutdown**: `docker compose down` takes ~7 seconds - Set timeout to 1+ minute
 - **Media Processing**: Variable based on file size - Large files may take 30+ minutes
 
 ### Expected Response Times:
@@ -384,7 +383,7 @@ mediabox/
 ### Quick Status Commands:
 ```bash
 # System overview
-docker-compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
+docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
 
 # Service health
 curl -s -o /dev/null -w "Homer: %{http_code}\n" http://localhost:80
@@ -529,7 +528,7 @@ healthcheck:
 4. Add error handling with meaningful messages
 
 ### **Debugging Issues**
-1. Check service logs: `docker-compose logs [service-name]`
+1. Check service logs: `docker compose logs [service-name]`
 2. Verify health checks: `docker inspect [container] | grep -A 10 Health`
 3. Review processing logs in `scripts/` directory
 4. Validate configuration with `python3 -m json.tool mediabox_config.json`
