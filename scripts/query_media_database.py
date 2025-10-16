@@ -113,14 +113,21 @@ class MediaQueryTool:
         return results
     
     def query_needs_conversion(self):
-        """List files needing conversion"""
+        """List files needing conversion (video files only)"""
         if not self.directories:
             print("⚠️  No directories specified. Use --dirs to specify search paths.")
             return []
         
         # Get all entries that are not 'skip'
         all_results = self.db.query_by_filter(directories=self.directories)
-        results = [r for r in all_results if r.get('action') not in ('skip', '', None)]
+        
+        # Filter for video files only (exclude audio-only files)
+        video_exts = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.m2ts', '.m4v', '.webm')
+        results = [
+            r for r in all_results 
+            if r.get('action') not in ('skip', '', None) 
+            and r.get('file_path', '').lower().endswith(video_exts)
+        ]
         
         if not results:
             print("✅ No files need conversion")
