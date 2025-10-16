@@ -1,0 +1,397 @@
+#!/usr/bin/env python3
+"""
+Mediabox Media Database Builder
+================================
+
+Scan media directories and build/update the metadata cache database.
+This provides fast lookups for media_update.py and enables powerful queries.
+
+USAGE:
+------
+# Scan entire library
+python3 build_media_database.py --scan /Storage/media/movies /Storage/media/tv
+
+# Scan specific directory
+python3 build_media_database.py --scan "/Storage/media/tv/Show Name"
+
+# Update existing entries (re-probe changed files)
+python3 build_media_database.py --update
+
+# Clean up missing files from database
+python3 build_media_database.py --cleanup
+
+# Show statistics
+python3 build_media_database.py --stats
+
+FEATURES:
+---------
+• Fast fingerprint-based change detection
+• Skips unchanged files (massive speedup on re-runs)
+• Directory-by-directory processing (memory efficient)
+• Progress reporting with ETA
+• Automatic HDR detection and cataloging
+• Parallel processing support (future enhancement)
+"""
+
+import os
+import sys
+import argparse
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+
+# Add script directory to Python path for imports
+script_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, script_dir)
+
+from media_database import MediaDatabase
+
+# Import ffmpeg if available
+try:
+    import ffmpeg
+    FFMPEG_AVAILABLE = True
+except ImportError:
+    FFMPEG_AVAILABLE = False
+    print("Warning: ffmpeg-python not available. Install with: pip install ffmpeg-python")
+
+# Supported media extensions
+VIDEO_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.m2ts', '.m4v', '.webm')
+AUDIO_EXTS = ('.flac', '.wav', '.aiff', '.ape', '.wv', '.m4a', '.ogg', '.opus', '.wma', '.mp3')
+
+class MediaScanner:
+    """Scan and catalog media files"""
+    
+    def __init__(self, db_path=None, verbose=False):
+        self.db = MediaDatabase(db_path)
+        self.verbose = verbose
+        self.stats = {
+            'scanned': 0,
+            'cached': 0,
+            'new': 0,
+            'modified': 0,
+            'errors': 0,
+            'hdr_found': 0
+        }
+        self.start_time = None
+    
+    def scan_directories(self, directories, force_rescan=False):
+        """
+        Scan directories for media files and update database.
+        
+        Args:
+            directories (list): List of directory paths to scan
+            force_rescan (bool): Force re-probe even if cached
+        """
+        self.start_time = time.time()
+        
+        print(f"🔍 Scanning directories...")
+        print(f"   Database: {self.db.db_path}")
+        print(f"   Directories: {len(directories)}")
+        print()
+        
+        for directory in directories:
+            if not os.path.isdir(directory):
+                print(f"⚠️  Skipping non-directory: {directory}")
+                continue
+            
+            self._scan_directory(directory, force_rescan)
+        
+        self._print_summary()
+    
+    def _scan_directory(self, directory, force_rescan=False):
+        """Recursively scan a directory"""
+        print(f"📁 Scanning: {directory}")
+        
+        # Get all media files in directory tree
+        media_files = []
+        for root, dirs, files in os.walk(directory):
+            for file in files:
+                if file.lower().endswith(VIDEO_EXTS + AUDIO_EXTS):
+                    media_files.append(os.path.join(root, file))
+        
+        total_files = len(media_files)
+        if total_files == 0:
+            print(f"   No media files found")
+            return
+        
+        print(f"   Found {total_files} media files")
+        
+        # Process each file
+        for idx, filepath in enumerate(media_files, 1):
+            self._process_file(filepath, force_rescan, idx, total_files)
+        
+        print()
+    
+    def _process_file(self, filepath, force_rescan, idx, total):
+        """Process a single media file"""
+        self.stats['scanned'] += 1
+        
+        # Generate fingerprint
+        fingerprint = self.db.get_file_fingerprint(filepath)
+        if not fingerprint:
+            if self.verbose:
+                print(f"   [{idx}/{total}] ⚠️  Cannot access: {os.path.basename(filepath)}")
+            self.stats['errors'] += 1
+            return
+        
+        # Check if we have cached data
+        if not force_rescan and self.db.has_cached_probe(fingerprint):
+            self.stats['cached'] += 1
+            if self.verbose:
+                print(f"   [{idx}/{total}] ✓ Cached: {os.path.basename(filepath)}")
+            
+            # Update progress every 10 files
+            if idx % 10 == 0:
+                self._print_progress(idx, total)
+            return
+        
+        # Need to probe the file
+        if not FFMPEG_AVAILABLE:
+            print(f"   [{idx}/{total}] ⚠️  Cannot probe (ffmpeg-python not installed): {os.path.basename(filepath)}")
+            self.stats['errors'] += 1
+            return
+        
+        try:
+            # Probe the file
+            probe_start = time.time()
+            probe = ffmpeg.probe(filepath)
+            probe_time = time.time() - probe_start
+            
+            # Determine action needed
+            action = self._determine_action(probe)
+            
+            # Store in database
+            self.db.store_probe(fingerprint, probe, action)
+            
+            # Update stats
+            if force_rescan:
+                self.stats['modified'] += 1
+                status = "↻ Re-scanned"
+            else:
+                self.stats['new'] += 1
+                status = "✨ New"
+            
+            # Check if HDR
+            is_hdr = self._is_hdr(probe)
+            if is_hdr:
+                self.stats['hdr_found'] += 1
+                status += " [HDR]"
+            
+            if self.verbose or idx % 10 == 0:
+                print(f"   [{idx}/{total}] {status}: {os.path.basename(filepath)} ({action}) [{probe_time:.1f}s]")
+            else:
+                self._print_progress(idx, total)
+                
+        except Exception as e:
+            self.stats['errors'] += 1
+            if self.verbose:
+                print(f"   [{idx}/{total}] ❌ Error probing {os.path.basename(filepath)}: {e}")
+    
+    def _print_progress(self, current, total):
+        """Print progress bar"""
+        if not self.verbose:
+            percent = (current / total) * 100
+            bar_length = 40
+            filled = int(bar_length * current / total)
+            bar = '█' * filled + '░' * (bar_length - filled)
+            
+            # Calculate ETA
+            elapsed = time.time() - self.start_time
+            if current > 0:
+                avg_per_file = elapsed / current
+                remaining = (total - current) * avg_per_file
+                eta = str(timedelta(seconds=int(remaining)))
+            else:
+                eta = "calculating..."
+            
+            print(f"\r   Progress: [{bar}] {current}/{total} ({percent:.1f}%) - ETA: {eta}", end='', flush=True)
+        
+        if current == total:
+            print()  # New line when complete
+    
+    def _is_hdr(self, probe):
+        """Check if probe indicates HDR content"""
+        video_stream = next((s for s in probe.get('streams', []) if s['codec_type'] == 'video'), None)
+        if not video_stream:
+            return False
+        
+        color_transfer = video_stream.get('color_transfer', '')
+        color_primaries = video_stream.get('color_primaries', '')
+        pix_fmt = video_stream.get('pix_fmt', '')
+        
+        if color_transfer in ['smpte2084', 'arib-std-b67']:
+            return True
+        if color_primaries == 'bt2020' and '10' in pix_fmt:
+            return True
+        
+        return False
+    
+    def _determine_action(self, probe):
+        """
+        Determine what action is needed for this file.
+        Simplified version - full logic should match media_update.py
+        
+        Returns:
+            str: Action needed ('skip', 'needs_conversion', etc.)
+        """
+        video_stream = next((s for s in probe.get('streams', []) if s['codec_type'] == 'video'), None)
+        audio_streams = [s for s in probe.get('streams', []) if s['codec_type'] == 'audio']
+        
+        if not video_stream:
+            # Audio-only file
+            if audio_streams and audio_streams[0].get('codec_name') != 'mp3':
+                return 'needs_audio_conversion'
+            return 'skip'
+        
+        # Video file checks
+        vcodec = video_stream.get('codec_name', '')
+        
+        # Check if already H.264
+        if vcodec != 'h264':
+            return 'needs_video_conversion'
+        
+        # Check if HDR (needs tone mapping)
+        if self._is_hdr(probe):
+            return 'needs_hdr_tonemap'
+        
+        # Check audio
+        all_aac = all(s.get('codec_name') == 'aac' for s in audio_streams)
+        if not all_aac:
+            return 'needs_audio_conversion'
+        
+        # Check for stereo track
+        has_stereo = any(s.get('channels') == 2 for s in audio_streams)
+        has_surround = any(s.get('channels', 0) > 2 for s in audio_streams)
+        
+        if has_surround and not has_stereo:
+            return 'needs_stereo_track'
+        
+        return 'skip'
+    
+    def _print_summary(self):
+        """Print scan summary"""
+        elapsed = time.time() - self.start_time
+        
+        print()
+        print("=" * 60)
+        print("📊 Scan Complete")
+        print("=" * 60)
+        print(f"Total files scanned:    {self.stats['scanned']:,}")
+        print(f"  • Used cache:         {self.stats['cached']:,}")
+        print(f"  • New files:          {self.stats['new']:,}")
+        print(f"  • Re-scanned:         {self.stats['modified']:,}")
+        print(f"  • HDR detected:       {self.stats['hdr_found']:,}")
+        print(f"  • Errors:             {self.stats['errors']:,}")
+        print(f"Time elapsed:           {timedelta(seconds=int(elapsed))}")
+        print()
+        
+        # Get database stats
+        db_stats = self.db.get_statistics()
+        print(f"Database statistics:")
+        print(f"  • Total entries:      {db_stats.get('total_files', 0):,}")
+        
+        if 'by_action' in db_stats and db_stats['by_action']:
+            print(f"\nBy action:")
+            for action, count in sorted(db_stats['by_action'].items(), key=lambda x: x[1], reverse=True):
+                if action:
+                    print(f"  • {action:25} {count:,}")
+        
+        if 'by_resolution' in db_stats and db_stats['by_resolution']:
+            print(f"\nTop resolutions:")
+            for resolution, count in list(db_stats['by_resolution'].items())[:5]:
+                print(f"  • {resolution:15} {count:,}")
+        
+        print("=" * 60)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Build and update Mediabox media metadata database',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Scan movie and TV libraries
+  %(prog)s --scan /Storage/media/movies /Storage/media/tv
+  
+  # Re-scan to find new files
+  %(prog)s --scan /Storage/media/movies
+  
+  # Force re-probe all files
+  %(prog)s --scan /Storage/media/movies --force
+  
+  # Show database statistics
+  %(prog)s --stats
+  
+  # Clean up deleted files
+  %(prog)s --cleanup
+        """
+    )
+    
+    parser.add_argument('--scan', nargs='+', metavar='DIR',
+                       help='Scan directories for media files')
+    parser.add_argument('--force', action='store_true',
+                       help='Force re-probe all files (ignore cache)')
+    parser.add_argument('--stats', action='store_true',
+                       help='Show database statistics')
+    parser.add_argument('--cleanup', action='store_true',
+                       help='Remove cache entries for deleted files')
+    parser.add_argument('--db', metavar='PATH',
+                       help='Database file path (default: ~/.local/share/mediabox/media_cache.db)')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                       help='Verbose output (show every file)')
+    
+    args = parser.parse_args()
+    
+    if not any([args.scan, args.stats, args.cleanup]):
+        parser.print_help()
+        sys.exit(1)
+    
+    # Create scanner
+    scanner = MediaScanner(db_path=args.db, verbose=args.verbose)
+    
+    try:
+        if args.cleanup:
+            print("🧹 Cleaning up missing files from database...")
+            removed = scanner.db.cleanup_missing_files()
+            print(f"   Removed {removed} entries for missing files")
+            print()
+        
+        if args.scan:
+            scanner.scan_directories(args.scan, force_rescan=args.force)
+        
+        if args.stats:
+            print("📊 Database Statistics")
+            print("=" * 60)
+            stats = scanner.db.get_statistics()
+            
+            print(f"Total files: {stats.get('total_files', 0):,}")
+            print()
+            
+            if 'by_action' in stats and stats['by_action']:
+                print("By action:")
+                for action, count in sorted(stats['by_action'].items(), key=lambda x: x[1], reverse=True):
+                    if action:
+                        print(f"  {action:30} {count:,}")
+                print()
+            
+            if 'by_resolution' in stats and stats['by_resolution']:
+                print("By resolution:")
+                for resolution, count in sorted(stats['by_resolution'].items(), key=lambda x: x[1], reverse=True):
+                    print(f"  {resolution:15} {count:,}")
+                print()
+            
+            if 'by_codec' in stats and stats['by_codec']:
+                print("By video codec:")
+                for codec, count in sorted(stats['by_codec'].items(), key=lambda x: x[1], reverse=True):
+                    print(f"  {codec:15} {count:,}")
+                print()
+            
+            print(f"HDR files: {stats.get('hdr_files', 0):,}")
+            print("=" * 60)
+    
+    finally:
+        scanner.db.close()
+
+
+if __name__ == '__main__':
+    main()

@@ -105,6 +105,14 @@ import requests
 import time
 from pathlib import Path
 
+# Import media database for caching
+try:
+    from media_database import MediaDatabase
+    DATABASE_AVAILABLE = True
+except ImportError:
+    DATABASE_AVAILABLE = False
+    print("Warning: media_database not available. Caching disabled.")
+
 def load_env_file():
     """Load environment variables from .env file if it exists."""
     # Use env_file path from config if available, otherwise fall back to default
@@ -1750,7 +1758,34 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
 
     # Check if conversion is needed
     try:
-        probe = ffmpeg.probe(input_file)
+        # Try to use cached probe data if available
+        fingerprint = None
+        probe = None
+        using_cache = False
+        
+        if DATABASE_AVAILABLE and hasattr(transcode_file, 'db'):
+            fingerprint = transcode_file.db.get_file_fingerprint(input_file)
+            if fingerprint and transcode_file.db.has_cached_probe(fingerprint):
+                cached_data = transcode_file.db.get_cached_probe(fingerprint)
+                if cached_data:
+                    probe = json.loads(cached_data['probe_json'])
+                    using_cache = True
+                    logging.info(f"Using cached probe data for: {input_file}")
+                    print(f"📦 Using cached metadata for: {os.path.basename(input_file)}")
+        
+        # If no cache, do normal ffmpeg probe
+        if probe is None:
+            probe = ffmpeg.probe(input_file)
+            logging.info(f"Probed file (no cache): {input_file}")
+            
+            # Store probe in database for future use
+            if DATABASE_AVAILABLE and hasattr(transcode_file, 'db') and fingerprint:
+                try:
+                    # We'll determine action below, store with placeholder for now
+                    transcode_file.db.store_probe(fingerprint, probe, action='pending')
+                    logging.info(f"📦 Cached probe data for future use")
+                except Exception as e:
+                    logging.warning(f"Failed to cache probe data: {e}")
         
         if is_video:
             # Video file logic (existing)
@@ -1946,6 +1981,32 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
             logging.info(f"Success: {final_output_file}")
             print(f"Success: {final_output_file}")
             
+            # Update database with conversion results
+            if DATABASE_AVAILABLE and hasattr(transcode_file, 'db') and fingerprint:
+                try:
+                    action_taken = []
+                    if needs_resolution_downgrade:
+                        action_taken.append('resolution_downgraded')
+                    if needs_stereo_track or force_stereo:
+                        action_taken.append('stereo_created')
+                    if needs_51_from_71:
+                        action_taken.append('5.1_from_7.1')
+                    if needs_audio_metadata_fix:
+                        action_taken.append('metadata_fixed')
+                    if has_non_english_audio:
+                        action_taken.append('non_english_removed')
+                    if not action_taken:
+                        action_taken.append('video_converted')
+                    
+                    transcode_file.db.update_after_conversion(
+                        fingerprint,
+                        success=True,
+                        action_taken=', '.join(action_taken)
+                    )
+                    logging.info(f"✅ Database updated: {', '.join(action_taken)}")
+                except Exception as e:
+                    logging.warning(f"Failed to update database after conversion: {e}")
+            
             # Add to batch notification list instead of immediate notification
             global processed_files
             processed_files.append(final_output_file)
@@ -1995,6 +2056,17 @@ def cleanup_orphaned_temp_files():
         print(f"Startup cleanup: removed {temp_files_cleaned} orphaned temp files")
 
 def main():
+    # Initialize database for caching if available
+    if DATABASE_AVAILABLE:
+        try:
+            transcode_file.db = MediaDatabase()
+            logging.info(f"📦 Database caching enabled: {transcode_file.db.db_path}")
+            print(f"📦 Database caching enabled")
+        except Exception as e:
+            logging.warning(f"Failed to initialize database: {e}")
+            print(f"⚠️  Database caching disabled: {e}")
+            DATABASE_AVAILABLE = False
+    
     # Clean up any orphaned temp files from previous interrupted runs
     cleanup_orphaned_temp_files()
     
@@ -2088,6 +2160,14 @@ def main():
     if processed_files:
         print(f"Notifying Plex about {len(processed_files)} processed files...")
         batch_notify_plex()
+    
+    # Close database connection if it was opened
+    if DATABASE_AVAILABLE and hasattr(transcode_file, 'db'):
+        try:
+            transcode_file.db.close()
+            logging.info("📦 Database connection closed")
+        except Exception as e:
+            logging.warning(f"Error closing database: {e}")
     
     logging.info("Transcoding complete.")
     print("Transcoding complete.")
