@@ -224,6 +224,9 @@ fi
 python3 -m venv "$INSTALL_DIR/.venv" || error_exit "Failed to create virtual environment" 1
 log_success "Virtual environment created"
 
+# Get the directory where this script is located (needed for file operations below)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Activate virtual environment
 source "$INSTALL_DIR/.venv/bin/activate"
 
@@ -243,9 +246,6 @@ log_success "Python dependencies installed"
 
 # Copy media_update.py script
 log_info "Installing media_update.py..."
-
-# Get the directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ ! -f "$SCRIPT_DIR/media_update.py" ]]; then
     error_exit "media_update.py not found in $SCRIPT_DIR. Please run from the scripts/ directory." 1
