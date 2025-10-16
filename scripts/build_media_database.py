@@ -98,6 +98,7 @@ class MediaScanner:
         }
         self.start_time = None
         self.scanned_directories = []  # Track directories for stats/cleanup
+        self.error_files = []  # Track files that had errors for summary
     
     def scan_directories(self, directories, force_rescan=False):
         """
@@ -187,8 +188,9 @@ class MediaScanner:
         # Generate fingerprint
         fingerprint = self.db.get_file_fingerprint(filepath)
         if not fingerprint:
-            if self.verbose:
-                print(f"   [{idx}/{total}] ⚠️  Cannot access: {os.path.basename(filepath)}")
+            error_msg = f"Cannot access file"
+            self.error_files.append((filepath, error_msg))
+            print(f"   [{idx}/{total}] ⚠️  {error_msg}: {filepath}")
             self.stats['errors'] += 1
             return
         
@@ -205,7 +207,9 @@ class MediaScanner:
         
         # Need to probe the file
         if not FFMPEG_AVAILABLE:
-            print(f"   [{idx}/{total}] ⚠️  Cannot probe (ffmpeg-python not installed): {os.path.basename(filepath)}")
+            error_msg = "ffmpeg-python not installed"
+            self.error_files.append((filepath, error_msg))
+            print(f"   [{idx}/{total}] ⚠️  {error_msg}: {os.path.basename(filepath)}")
             self.stats['errors'] += 1
             return
         
@@ -242,8 +246,10 @@ class MediaScanner:
                 
         except Exception as e:
             self.stats['errors'] += 1
-            if self.verbose:
-                print(f"   [{idx}/{total}] ❌ Error probing {os.path.basename(filepath)}: {e}")
+            error_msg = str(e)
+            self.error_files.append((filepath, error_msg))
+            print(f"   [{idx}/{total}] ❌ Error probing: {filepath}")
+            print(f"                  Error: {error_msg}")
     
     def _print_progress(self, current, total):
         """Print progress bar"""
@@ -341,6 +347,15 @@ class MediaScanner:
         print(f"  • HDR detected:       {self.stats['hdr_found']:,}")
         print(f"  • Errors:             {self.stats['errors']:,}")
         print(f"Time elapsed:           {timedelta(seconds=int(elapsed))}")
+        
+        # Show error details if any
+        if self.error_files:
+            print()
+            print("⚠️  Errors encountered:")
+            for filepath, error_msg in self.error_files:
+                print(f"  • {filepath}")
+                print(f"    └─ {error_msg}")
+        
         print()
         
         # Get database stats
