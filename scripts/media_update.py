@@ -2061,6 +2061,8 @@ def cleanup_orphaned_temp_files():
         print(f"Startup cleanup: removed {temp_files_cleaned} orphaned temp files")
 
 def main():
+    global DATABASE_AVAILABLE
+    
     # Initialize database for caching if available
     if DATABASE_AVAILABLE:
         try:
