@@ -1766,9 +1766,8 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
         if DATABASE_AVAILABLE and hasattr(transcode_file, 'db'):
             fingerprint = transcode_file.db.get_file_fingerprint(input_file)
             if fingerprint and transcode_file.db.has_cached_probe(fingerprint):
-                cached_data = transcode_file.db.get_cached_probe(fingerprint)
-                if cached_data:
-                    probe = json.loads(cached_data['probe_json'])
+                probe = transcode_file.db.get_cached_probe(fingerprint)
+                if probe:
                     using_cache = True
                     logging.info(f"Using cached probe data for: {input_file}")
                     print(f"📦 Using cached metadata for: {os.path.basename(input_file)}")
