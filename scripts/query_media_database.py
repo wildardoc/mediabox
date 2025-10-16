@@ -49,6 +49,28 @@ from pathlib import Path
 script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, script_dir)
 
+# Load configuration and activate virtual environment (not strictly needed for query tool, but good for consistency)
+CONFIG_PATH = os.path.join(script_dir, "mediabox_config.json")
+try:
+    with open(CONFIG_PATH, 'r') as f:
+        config = json.load(f)
+    
+    venv_path = config.get("venv_path")
+    if venv_path and os.path.exists(venv_path):
+        # Add venv site-packages to Python path
+        site_packages = os.path.join(
+            venv_path, "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages"
+        )
+        if site_packages not in sys.path:
+            sys.path.insert(0, site_packages)
+        
+        # Set virtual environment variables
+        os.environ["VIRTUAL_ENV"] = venv_path
+        os.environ["PATH"] = os.path.join(venv_path, "bin") + os.pathsep + os.environ.get("PATH", "")
+except Exception as e:
+    # Silently continue - query tool doesn't strictly need venv
+    pass
+
 from media_database import MediaDatabase
 
 

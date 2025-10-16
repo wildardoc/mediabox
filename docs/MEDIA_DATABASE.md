@@ -33,6 +33,8 @@ The media database system provides **intelligent metadata caching** to dramatica
 ### **1. media_database.py**
 Shared library providing database operations.
 
+**No manual venv activation required** - All scripts automatically activate the virtual environment from `mediabox_config.json`.
+
 **Key Methods:**
 ```python
 db = MediaDatabase()
@@ -69,6 +71,8 @@ db.close()
 
 ### **2. build_media_database.py**
 Scan and catalog media libraries.
+
+**Automatic venv activation** - No need to run `source .venv/bin/activate` first!
 
 **Usage:**
 ```bash

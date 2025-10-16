@@ -37,12 +37,35 @@ import os
 import sys
 import argparse
 import time
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
 # Add script directory to Python path for imports
 script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, script_dir)
+
+# Load configuration and activate virtual environment
+CONFIG_PATH = os.path.join(script_dir, "mediabox_config.json")
+try:
+    with open(CONFIG_PATH, 'r') as f:
+        config = json.load(f)
+    
+    venv_path = config.get("venv_path")
+    if venv_path and os.path.exists(venv_path):
+        # Add venv site-packages to Python path
+        site_packages = os.path.join(
+            venv_path, "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages"
+        )
+        if site_packages not in sys.path:
+            sys.path.insert(0, site_packages)
+        
+        # Set virtual environment variables
+        os.environ["VIRTUAL_ENV"] = venv_path
+        os.environ["PATH"] = os.path.join(venv_path, "bin") + os.pathsep + os.environ.get("PATH", "")
+except Exception as e:
+    print(f"Warning: Could not activate virtual environment: {e}")
+    print("Continuing with system Python packages...")
 
 from media_database import MediaDatabase
 
