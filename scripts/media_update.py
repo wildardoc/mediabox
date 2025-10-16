@@ -1998,8 +1998,12 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                     if not action_taken:
                         action_taken.append('video_converted')
                     
+                    # Update database: pass final_output_file (converted file location)
+                    # If input_file will be deleted, original_fingerprint + final_output_file
+                    # handles the cache cleanup automatically
                     transcode_file.db.update_after_conversion(
                         fingerprint,
+                        new_filepath=final_output_file,
                         success=True,
                         action_taken=', '.join(action_taken)
                     )
@@ -2012,6 +2016,7 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
             processed_files.append(final_output_file)
             
             # Only remove source file if it's different from final output file
+            # Database update above will handle cache cleanup for deleted original
             if input_file != final_output_file:
                 try:
                     os.remove(input_file)

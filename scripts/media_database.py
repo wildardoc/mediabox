@@ -321,16 +321,22 @@ class MediaDatabase:
         # Save back to file
         self._save_cache(cache_file, cache_data)
     
-    def update_after_conversion(self, original_fingerprint, new_filepath, success=True, error_message=None, duration=None):
+    def update_after_conversion(self, original_fingerprint, new_filepath=None, success=True, error_message=None, duration=None, action_taken=None):
         """
         Update database after file conversion completes.
         
+        Handles three scenarios:
+        1. In-place conversion (original modified): Update existing entry with new fingerprint
+        2. New file created (original deleted): Remove old entry, create new one
+        3. Conversion failed: Mark entry with error
+        
         Args:
             original_fingerprint (dict): Fingerprint of original file
-            new_filepath (str): Path to converted file (may be same as original)
+            new_filepath (str, optional): Path to converted file (None if original deleted)
             success (bool): Whether conversion succeeded
             error_message (str, optional): Error message if failed
             duration (float, optional): Conversion duration in seconds
+            action_taken (str, optional): Description of action taken (for logging)
         """
         if not original_fingerprint:
             return
@@ -345,33 +351,72 @@ class MediaDatabase:
         from datetime import datetime
         
         if success:
-            # Get new fingerprint of converted file
-            new_fingerprint = self.get_file_fingerprint(new_filepath)
+            # Check if original file still exists (in-place conversion)
+            original_exists = os.path.exists(original_fingerprint['path'])
             
-            if new_fingerprint:
-                # Update existing entry
+            if new_filepath and os.path.exists(new_filepath):
+                # Get new fingerprint of converted file
+                new_fingerprint = self.get_file_fingerprint(new_filepath)
+                
+                if new_fingerprint:
+                    # Check if this is a different directory (rare, but possible)
+                    new_cache_file = self._get_cache_file_path(new_filepath)
+                    if new_cache_file != cache_file:
+                        # File moved to different directory - remove from old cache
+                        del cache_data[original_fingerprint['hash']]
+                        self._save_cache(cache_file, cache_data)
+                        
+                        # Add to new directory's cache
+                        new_cache_data = self._load_cache(new_cache_file)
+                        entry['last_processed'] = datetime.now().isoformat()
+                        entry['conversion_count'] = entry.get('conversion_count', 0) + 1
+                        entry['last_conversion_duration'] = duration
+                        entry['action'] = 'skip'
+                        entry['processing_error'] = None
+                        entry['fingerprint_hash'] = new_fingerprint['hash']
+                        entry['file_path'] = new_fingerprint['path']
+                        entry['file_size'] = new_fingerprint['size']
+                        entry['file_mtime'] = new_fingerprint['mtime']
+                        new_cache_data[new_fingerprint['hash']] = entry
+                        self._save_cache(new_cache_file, new_cache_data)
+                        return
+                    
+                    # Same directory - update entry
+                    entry['last_processed'] = datetime.now().isoformat()
+                    entry['conversion_count'] = entry.get('conversion_count', 0) + 1
+                    entry['last_conversion_duration'] = duration
+                    entry['action'] = 'skip'
+                    entry['processing_error'] = None
+                    
+                    # If fingerprint changed (file was modified), update the hash key
+                    if new_fingerprint['hash'] != original_fingerprint['hash']:
+                        # Remove old entry
+                        del cache_data[original_fingerprint['hash']]
+                        
+                        # Update entry with new fingerprint details
+                        entry['fingerprint_hash'] = new_fingerprint['hash']
+                        entry['file_path'] = new_fingerprint['path']
+                        entry['file_size'] = new_fingerprint['size']
+                        entry['file_mtime'] = new_fingerprint['mtime']
+                        
+                        # Add as new entry
+                        cache_data[new_fingerprint['hash']] = entry
+                    else:
+                        # Update in place
+                        cache_data[original_fingerprint['hash']] = entry
+            
+            elif not original_exists:
+                # Original file was deleted and no new file provided - remove cache entry
+                del cache_data[original_fingerprint['hash']]
+                
+            else:
+                # Original still exists - update in place
                 entry['last_processed'] = datetime.now().isoformat()
                 entry['conversion_count'] = entry.get('conversion_count', 0) + 1
                 entry['last_conversion_duration'] = duration
                 entry['action'] = 'skip'
                 entry['processing_error'] = None
-                
-                # If fingerprint changed (file was modified), update the hash key
-                if new_fingerprint['hash'] != original_fingerprint['hash']:
-                    # Remove old entry
-                    del cache_data[original_fingerprint['hash']]
-                    
-                    # Update entry with new fingerprint details
-                    entry['fingerprint_hash'] = new_fingerprint['hash']
-                    entry['file_path'] = new_fingerprint['path']
-                    entry['file_size'] = new_fingerprint['size']
-                    entry['file_mtime'] = new_fingerprint['mtime']
-                    
-                    # Add as new entry
-                    cache_data[new_fingerprint['hash']] = entry
-                else:
-                    # Update in place
-                    cache_data[original_fingerprint['hash']] = entry
+                cache_data[original_fingerprint['hash']] = entry
         else:
             # Mark as failed
             entry['processing_error'] = error_message
@@ -534,6 +579,39 @@ class MediaDatabase:
             self._save_cache(cache_file, cache_data)
         
         return removed
+    
+    def cleanup_all_directories(self, directories):
+        """
+        Clean up cache entries for missing files across multiple directories.
+        
+        Useful for periodic maintenance to remove entries for files that were
+        deleted outside the system (manual deletion, *arr cleanup, etc.)
+        
+        Args:
+            directories (list): List of directories to scan and cleanup
+        
+        Returns:
+            dict: Summary of cleanup {'total_removed': int, 'directories_cleaned': int}
+        """
+        total_removed = 0
+        directories_cleaned = 0
+        
+        for directory in directories:
+            if not os.path.isdir(directory):
+                continue
+            
+            # Walk subdirectories to find all cache files
+            for root, dirs, files in os.walk(directory):
+                if CACHE_FILENAME in files:
+                    removed = self.cleanup_missing_files(root)
+                    if removed > 0:
+                        total_removed += removed
+                        directories_cleaned += 1
+        
+        return {
+            'total_removed': total_removed,
+            'directories_cleaned': directories_cleaned
+        }
     
     def close(self):
         """Close database connection (no-op for JSON backend)"""
