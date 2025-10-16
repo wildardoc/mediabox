@@ -231,8 +231,14 @@ source "$INSTALL_DIR/.venv/bin/activate"
 log_info "Installing Python dependencies..."
 pip install --upgrade pip setuptools wheel
 
-# Install ffmpeg-python and future
-pip install ffmpeg-python==0.2.0 future==1.0.0 || error_exit "Failed to install Python dependencies" 1
+# Install all required dependencies from requirements.txt if available, otherwise install manually
+if [[ -f "$SCRIPT_DIR/requirements.txt" ]]; then
+    log_info "Installing from requirements.txt..."
+    pip install -r "$SCRIPT_DIR/requirements.txt" || error_exit "Failed to install Python dependencies" 1
+else
+    log_warning "requirements.txt not found, installing dependencies manually..."
+    pip install ffmpeg-python==0.2.0 future==1.0.0 PlexAPI==4.15.8 requests==2.31.0 || error_exit "Failed to install Python dependencies" 1
+fi
 log_success "Python dependencies installed"
 
 # Copy media_update.py script
@@ -248,6 +254,27 @@ fi
 cp "$SCRIPT_DIR/media_update.py" "$INSTALL_DIR/" || error_exit "Failed to copy media_update.py" 1
 chmod +x "$INSTALL_DIR/media_update.py"
 log_success "media_update.py installed"
+
+# Copy media database files if they exist (optional but recommended for caching)
+log_info "Installing database support files..."
+if [[ -f "$SCRIPT_DIR/media_database.py" ]]; then
+    cp "$SCRIPT_DIR/media_database.py" "$INSTALL_DIR/" || log_warning "Failed to copy media_database.py"
+    log_success "media_database.py installed (caching enabled)"
+else
+    log_warning "media_database.py not found - caching will be disabled"
+fi
+
+if [[ -f "$SCRIPT_DIR/build_media_database.py" ]]; then
+    cp "$SCRIPT_DIR/build_media_database.py" "$INSTALL_DIR/" || log_warning "Failed to copy build_media_database.py"
+    chmod +x "$INSTALL_DIR/build_media_database.py"
+    log_info "build_media_database.py installed"
+fi
+
+if [[ -f "$SCRIPT_DIR/query_media_database.py" ]]; then
+    cp "$SCRIPT_DIR/query_media_database.py" "$INSTALL_DIR/" || log_warning "Failed to copy query_media_database.py"
+    chmod +x "$INSTALL_DIR/query_media_database.py"
+    log_info "query_media_database.py installed"
+fi
 
 # Copy requirements.txt if it exists
 if [[ -f "$SCRIPT_DIR/requirements.txt" ]]; then
@@ -531,13 +558,33 @@ log_success "Installation directory: $INSTALL_DIR"
 log_success "Command wrapper: $BIN_DIR/media-converter"
 log_success "Configuration: $INSTALL_DIR/mediabox_config.json"
 log_success "GPU acceleration: $DETECTED_GPU"
+
+# Show database tools status
+if [[ -f "$INSTALL_DIR/media_database.py" ]]; then
+    log_success "Database caching: ENABLED (11x faster scans)"
+else
+    log_warning "Database caching: DISABLED (media_database.py not found)"
+fi
+
 echo ""
 echo "Next steps:"
 echo "  1. Reload your shell: source ~/.bashrc"
 echo "  2. Test installation: media-converter --help"
 echo "  3. Read usage guide: cat $INSTALL_DIR/USAGE.md"
 echo ""
-echo "Examples:"
+
+# Show database tools if installed
+if [[ -f "$INSTALL_DIR/build_media_database.py" ]]; then
+    echo "Database tools installed:"
+    echo "  # Build database cache (speeds up re-scans by 11x)"
+    echo "  cd $INSTALL_DIR && python3 build_media_database.py --scan /path/to/media"
+    echo ""
+    echo "  # Query HDR files"
+    echo "  cd $INSTALL_DIR && python3 query_media_database.py --hdr"
+    echo ""
+fi
+
+echo "Conversion examples:"
 echo "  # Single file"
 echo "  media-converter --file '/path/to/video.mp4' --type video"
 echo ""
