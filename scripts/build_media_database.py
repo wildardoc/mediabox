@@ -134,6 +134,10 @@ class MediaScanner:
         # Get all media files in directory tree
         media_files = []
         for root, dirs, files in os.walk(directory):
+            # Skip music directories entirely (performance optimization)
+            # Modify dirs in-place to prevent os.walk from descending into them
+            dirs[:] = [d for d in dirs if d.lower() not in ('music', 'audiobooks', 'podcasts')]
+            
             # Track subdirectories that contain media
             for file in files:
                 # Only scan video files (audio files don't benefit from caching)
