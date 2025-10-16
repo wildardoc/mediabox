@@ -79,7 +79,8 @@ except ImportError:
 
 # Supported media extensions
 VIDEO_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.m2ts', '.m4v', '.webm')
-AUDIO_EXTS = ('.flac', '.wav', '.aiff', '.ape', '.wv', '.m4a', '.ogg', '.opus', '.wma', '.mp3')
+# Audio files are not scanned - they don't benefit from metadata caching
+# For audio conversion, use media_update.py directly (simple extension check is sufficient)
 
 class MediaScanner:
     """Scan and catalog media files"""
@@ -87,7 +88,6 @@ class MediaScanner:
     def __init__(self, db_path=None, verbose=False):
         self.db = MediaDatabase(db_path)
         self.verbose = verbose
-        self.scan_audio = True  # Can be disabled for video-only scanning
         self.stats = {
             'scanned': 0,
             'cached': 0,
@@ -136,15 +136,8 @@ class MediaScanner:
         for root, dirs, files in os.walk(directory):
             # Track subdirectories that contain media
             for file in files:
-                file_lower = file.lower()
-                is_video = file_lower.endswith(VIDEO_EXTS)
-                is_audio = file_lower.endswith(AUDIO_EXTS)
-                
-                # Skip audio files if video-only mode
-                if is_audio and not self.scan_audio:
-                    continue
-                
-                if is_video or is_audio:
+                # Only scan video files (audio files don't benefit from caching)
+                if file.lower().endswith(VIDEO_EXTS):
                     media_files.append(os.path.join(root, file))
                     # Track the directory containing this media file
                     if root not in self.scanned_directories:
@@ -372,8 +365,6 @@ Examples:
                        help='Scan directories for media files')
     parser.add_argument('--force', action='store_true',
                        help='Force re-probe all files (ignore cache)')
-    parser.add_argument('--video-only', action='store_true',
-                       help='Scan video files only (skip audio files like FLAC, MP3, etc.)')
     parser.add_argument('--stats', nargs='*', metavar='DIR',
                        help='Show cache statistics for directories (uses scanned dirs if none specified)')
     parser.add_argument('--cleanup', nargs='*', metavar='DIR',
@@ -395,10 +386,6 @@ Examples:
     
     # Create scanner
     scanner = MediaScanner(db_path=args.db, verbose=args.verbose)
-    
-    # Configure file type filtering
-    if args.video_only:
-        scanner.scan_audio = False
     
     try:
         # Scan first if requested
