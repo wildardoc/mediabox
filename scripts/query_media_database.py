@@ -77,27 +77,34 @@ from media_database import MediaDatabase
 class MediaQueryTool:
     """Query and analyze media database"""
     
-    def __init__(self, db_path=None):
+    def __init__(self, db_path=None, directories=None):
         self.db = MediaDatabase(db_path)
+        self.directories = directories or []
     
     def query_hdr_files(self):
         """List all HDR files"""
-        results = self.db.query_by_filter(is_hdr=True)
+        if not self.directories:
+            print("⚠️  No directories specified. Use --dirs to specify search paths.")
+            return []
+        
+        results = self.db.query_by_filter(directories=self.directories, is_hdr=True)
         
         if not results:
-            print("No HDR files found in database")
+            print("No HDR files found in cache")
             return []
         
         print(f"🎬 HDR Files ({len(results)} total)")
         print("=" * 80)
         
         for row in results:
-            path = row.get('file_path', 'Unknown')  # Changed from 'path' to 'file_path'
+            path = row.get('file_path', 'Unknown')
             resolution = row.get('resolution', 'Unknown')
+            hdr_type = row.get('hdr_type', 'Unknown')
             color_transfer = row.get('color_transfer', 'Unknown')
             action = row.get('action', 'Unknown')
             
             print(f"📁 {path}")
+            print(f"   Type:       {hdr_type}")
             print(f"   Resolution: {resolution}")
             print(f"   Transfer:   {color_transfer}")
             print(f"   Action:     {action}")
@@ -107,12 +114,13 @@ class MediaQueryTool:
     
     def query_needs_conversion(self):
         """List files needing conversion"""
-        results = self.db.conn.execute("""
-            SELECT path, action, resolution, video_codec, audio_codec, file_size_bytes
-            FROM media_cache
-            WHERE action NOT IN ('skip', '')
-            ORDER BY file_size_bytes DESC
-        """).fetchall()
+        if not self.directories:
+            print("⚠️  No directories specified. Use --dirs to specify search paths.")
+            return []
+        
+        # Get all entries that are not 'skip'
+        all_results = self.db.query_by_filter(directories=self.directories)
+        results = [r for r in all_results if r.get('action') not in ('skip', '', None)]
         
         if not results:
             print("✅ No files need conversion")
@@ -124,12 +132,12 @@ class MediaQueryTool:
         # Group by action
         by_action = {}
         for row in results:
-            action = row['action']
+            action = row.get('action', 'unknown')
             if action not in by_action:
                 by_action[action] = []
             by_action[action].append(row)
         
-        total_size = sum(row['file_size_bytes'] or 0 for row in results)
+        total_size = sum(row.get('file_size', 0) for row in results)
         print(f"Total size: {self._format_size(total_size)}")
         print()
         
@@ -138,11 +146,11 @@ class MediaQueryTool:
             print("-" * 80)
             
             for row in files[:10]:  # Limit to 10 per category
-                path = row['file_path']
-                resolution = row['resolution'] or 'Unknown'
-                vcodec = row['video_codec'] or 'N/A'
-                acodec = row['audio_codec'] or 'N/A'
-                size = self._format_size(row['file_size_bytes'] or 0)
+                path = row.get('file_path', 'Unknown')
+                resolution = row.get('resolution', 'Unknown')
+                vcodec = row.get('codec_video', 'N/A')
+                acodec = row.get('codec_audio', 'N/A')
+                size = self._format_size(row.get('file_size', 0))
                 
                 print(f"  {Path(path).name}")
                 print(f"    Path:       {path}")
@@ -349,62 +357,73 @@ class MediaQueryTool:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Query Mediabox media metadata database',
+        description='Query Mediabox media metadata cache',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Show all HDR files
-  %(prog)s --hdr
+  # Show all HDR files in movies
+  %(prog)s --dirs /Storage/media/movies --hdr
   
   # Find files needing conversion
-  %(prog)s --needs-conversion
+  %(prog)s --dirs /Storage/media/movies /Storage/media/tv --needs-conversion
   
-  # Search for a show
-  %(prog)s --search "Breaking Bad"
+  # Show statistics for TV library
+  %(prog)s --dirs /Storage/media/tv --stats
   
-  # Show 4K files
-  %(prog)s --resolution 3840x2160
-  
-  # Export conversion queue
-  %(prog)s --needs-conversion --export queue.txt
-  
-  # Show statistics
-  %(prog)s --stats
+  # Load directories from config
+  %(prog)s --from-config --stats
         """
     )
     
+    parser.add_argument('--dirs', nargs='+', metavar='DIR',
+                       help='Directories to search (required unless --from-config used)')
+    parser.add_argument('--from-config', action='store_true',
+                       help='Load directories from mediabox_config.json library_dirs')
     parser.add_argument('--hdr', action='store_true',
                        help='List all HDR files')
     parser.add_argument('--needs-conversion', action='store_true',
                        help='List files needing conversion')
     parser.add_argument('--by-action', metavar='ACTION',
                        help='Show files by action (or summary if no action specified)', nargs='?', const='')
-    parser.add_argument('--resolution', metavar='RES',
-                       help='Filter by resolution (e.g., 3840x2160) or show summary')
-    parser.add_argument('--search', metavar='QUERY',
-                       help='Search for files by path/name')
-    parser.add_argument('--history', action='store_true',
-                       help='Show processing history')
-    parser.add_argument('--days', type=int, default=30,
-                       help='Days of history to show (default: 30)')
     parser.add_argument('--stats', action='store_true',
-                       help='Show database statistics')
+                       help='Show cache statistics')
     parser.add_argument('--export', metavar='FILE',
                        help='Export results (paths only) to file')
     parser.add_argument('--export-json', metavar='FILE',
                        help='Export results as JSON to file')
     parser.add_argument('--db', metavar='PATH',
-                       help='Database file path (default: ~/.local/share/mediabox/media_cache.db)')
+                       help='Database file path (ignored for JSON backend, kept for compatibility)')
     
     args = parser.parse_args()
     
-    if not any([args.hdr, args.needs_conversion, args.by_action is not None, 
-                args.resolution, args.search, args.history, args.stats]):
+    if not any([args.hdr, args.needs_conversion, args.by_action is not None, args.stats]):
         parser.print_help()
         sys.exit(1)
     
+    # Determine directories to search
+    directories = args.dirs or []
+    
+    if args.from_config:
+        try:
+            with open(CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+            lib_dirs = config.get('library_dirs', {})
+            directories.extend([
+                lib_dirs.get('movies'),
+                lib_dirs.get('tv'),
+                lib_dirs.get('music')
+            ])
+            directories = [d for d in directories if d and os.path.isdir(d)]
+        except Exception as e:
+            print(f"⚠️  Could not load config: {e}")
+    
+    if not directories:
+        print("❌ Error: No directories specified")
+        print("   Use --dirs /path/to/media or --from-config")
+        sys.exit(1)
+    
     # Create query tool
-    tool = MediaQueryTool(db_path=args.db)
+    tool = MediaQueryTool(db_path=args.db, directories=directories)
     
     try:
         results = []
@@ -419,21 +438,17 @@ Examples:
             action = args.by_action if args.by_action else None
             results = tool.query_by_action(action)
         
-        if args.resolution is not None:
-            results = tool.query_by_resolution(args.resolution if args.resolution else None)
-        
-        if args.search:
-            results = tool.search(args.search)
-        
-        if args.history:
-            results = tool.show_history(args.days)
-        
         if args.stats:
-            print("📊 Database Statistics")
+            print("📊 Cache Statistics")
             print("=" * 80)
-            stats = tool.db.get_statistics()
+            print(f"Searching directories: {len(directories)}")
+            for d in directories:
+                print(f"  - {d}")
+            print()
             
-            print(f"Total files: {stats.get('total_files', 0):,}")
+            stats = tool.db.get_statistics(directories)
+            
+            print(f"Total cached files: {stats.get('total_files', 0):,}")
             print()
             
             if 'by_action' in stats and stats['by_action']:
@@ -445,14 +460,19 @@ Examples:
             
             if 'by_resolution' in stats and stats['by_resolution']:
                 print("Top resolutions:")
-                for resolution, count in list(sorted(stats['by_resolution'].items(), 
-                                                    key=lambda x: x[1], reverse=True))[:10]:
+                for resolution, count in list(stats['by_resolution'].items())[:10]:
                     print(f"  {resolution:15} {count:,}")
                 print()
             
-            if 'by_codec' in stats and stats['by_codec']:
-                print("Video codecs:")
-                for codec, count in sorted(stats['by_codec'].items(), key=lambda x: x[1], reverse=True):
+            if 'by_codec_video' in stats and stats['by_codec_video']:
+                print("Top video codecs:")
+                for codec, count in list(stats['by_codec_video'].items())[:10]:
+                    print(f"  {codec:15} {count:,}")
+                print()
+            
+            if 'by_codec_audio' in stats and stats['by_codec_audio']:
+                print("Top audio codecs:")
+                for codec, count in list(stats['by_codec_audio'].items())[:10]:
                     print(f"  {codec:15} {count:,}")
                 print()
             

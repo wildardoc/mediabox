@@ -865,6 +865,20 @@ else
     echo "✓ Media cleanup cron job already exists"
 fi
 
+# Setup cache cleanup cron job
+echo "Setting up automatic cache cleanup..."
+CACHE_CLEANUP_CRON_ENTRY="0 4 * * 0 cd $SCRIPTS_DIR && python3 build_media_database.py --cleanup $MOVIEDIR $TVDIR $MUSICDIR >> $SCRIPTS_DIR/cache_cleanup_\$(date +\%Y\%m\%d_\%H\%M\%S).log 2>&1"
+CACHE_CLEANUP_CRON_COMMENT="# Mediabox cache cleanup - removes stale cache entries weekly on Sundays at 4 AM"
+
+# Check if cache cleanup cron job already exists
+if ! crontab -l 2>/dev/null | grep -q "build_media_database.py --cleanup"; then
+    # Add the cache cleanup cron job
+    (crontab -l 2>/dev/null; echo "$CACHE_CLEANUP_CRON_COMMENT"; echo "$CACHE_CLEANUP_CRON_ENTRY") | crontab -
+    echo "✓ Cache cleanup cron job added (runs weekly on Sundays at 4 AM)"
+else
+    echo "✓ Cache cleanup cron job already exists"
+fi
+
 # Setup conversion cleanup cron job (runs on system boot only)
 echo "Setting up automatic conversion cleanup..."
 CONVERSION_CLEANUP_CRON_ENTRY_BOOT="@reboot cd $SCRIPTS_DIR && ./cleanup-conversions.sh --live >> $SCRIPTS_DIR/cleanup-conversions_\$(date +\%Y\%m\%d_\%H\%M\%S).log 2>&1"

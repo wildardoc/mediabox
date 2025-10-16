@@ -96,6 +96,7 @@ class MediaScanner:
             'hdr_found': 0
         }
         self.start_time = None
+        self.scanned_directories = []  # Track directories for stats/cleanup
     
     def scan_directories(self, directories, force_rescan=False):
         """
@@ -125,12 +126,20 @@ class MediaScanner:
         """Recursively scan a directory"""
         print(f"📁 Scanning: {directory}")
         
+        # Track this directory for later stats/cleanup
+        if directory not in self.scanned_directories:
+            self.scanned_directories.append(directory)
+        
         # Get all media files in directory tree
         media_files = []
         for root, dirs, files in os.walk(directory):
+            # Track subdirectories that contain media
             for file in files:
                 if file.lower().endswith(VIDEO_EXTS + AUDIO_EXTS):
                     media_files.append(os.path.join(root, file))
+                    # Track the directory containing this media file
+                    if root not in self.scanned_directories:
+                        self.scanned_directories.append(root)
         
         total_files = len(media_files)
         if total_files == 0:
@@ -354,18 +363,22 @@ Examples:
                        help='Scan directories for media files')
     parser.add_argument('--force', action='store_true',
                        help='Force re-probe all files (ignore cache)')
-    parser.add_argument('--stats', action='store_true',
-                       help='Show database statistics')
-    parser.add_argument('--cleanup', action='store_true',
-                       help='Remove cache entries for deleted files')
+    parser.add_argument('--stats', nargs='*', metavar='DIR',
+                       help='Show cache statistics for directories (uses scanned dirs if none specified)')
+    parser.add_argument('--cleanup', nargs='*', metavar='DIR',
+                       help='Remove cache entries for deleted files (uses scanned dirs if none specified)')
     parser.add_argument('--db', metavar='PATH',
-                       help='Database file path (default: ~/.local/share/mediabox/media_cache.db)')
+                       help='Database file path (ignored for JSON backend, kept for compatibility)')
     parser.add_argument('-v', '--verbose', action='store_true',
                        help='Verbose output (show every file)')
     
     args = parser.parse_args()
     
-    if not any([args.scan, args.stats, args.cleanup]):
+    # Allow --stats and --cleanup to be flags without arguments
+    show_stats = args.stats is not None
+    do_cleanup = args.cleanup is not None
+    
+    if not any([args.scan, show_stats, do_cleanup]):
         parser.print_help()
         sys.exit(1)
     
@@ -373,44 +386,73 @@ Examples:
     scanner = MediaScanner(db_path=args.db, verbose=args.verbose)
     
     try:
-        if args.cleanup:
-            print("🧹 Cleaning up missing files from database...")
-            removed = scanner.db.cleanup_missing_files()
-            print(f"   Removed {removed} entries for missing files")
-            print()
-        
+        # Scan first if requested
         if args.scan:
             scanner.scan_directories(args.scan, force_rescan=args.force)
         
-        if args.stats:
-            print("📊 Database Statistics")
-            print("=" * 60)
-            stats = scanner.db.get_statistics()
-            
-            print(f"Total files: {stats.get('total_files', 0):,}")
-            print()
-            
-            if 'by_action' in stats and stats['by_action']:
-                print("By action:")
-                for action, count in sorted(stats['by_action'].items(), key=lambda x: x[1], reverse=True):
-                    if action:
-                        print(f"  {action:30} {count:,}")
+        # Determine directories for cleanup/stats
+        # Use explicitly specified directories, or fall back to scanned directories
+        cleanup_dirs = args.cleanup if args.cleanup else []
+        stats_dirs = args.stats if args.stats else []
+        
+        # If no directories specified but we scanned something, use those
+        if do_cleanup and not cleanup_dirs and scanner.scanned_directories:
+            cleanup_dirs = scanner.scanned_directories
+        if show_stats and not stats_dirs and scanner.scanned_directories:
+            stats_dirs = scanner.scanned_directories
+        
+        # Cleanup if requested
+        if do_cleanup:
+            if cleanup_dirs:
+                print("🧹 Cleaning up cache entries for missing files...")
+                result = scanner.db.cleanup_all_directories(cleanup_dirs)
+                print(f"   Directories cleaned: {result['directories_cleaned']}")
+                print(f"   Stale entries removed: {result['total_removed']}")
                 print()
-            
-            if 'by_resolution' in stats and stats['by_resolution']:
-                print("By resolution:")
-                for resolution, count in sorted(stats['by_resolution'].items(), key=lambda x: x[1], reverse=True):
-                    print(f"  {resolution:15} {count:,}")
+            else:
+                print("⚠️  No directories specified for cleanup")
                 print()
-            
-            if 'by_codec' in stats and stats['by_codec']:
-                print("By video codec:")
-                for codec, count in sorted(stats['by_codec'].items(), key=lambda x: x[1], reverse=True):
-                    print(f"  {codec:15} {count:,}")
+        
+        # Show stats if requested
+        if show_stats:
+            if stats_dirs:
+                print("📊 Cache Statistics")
+                print("=" * 60)
+                stats = scanner.db.get_statistics(stats_dirs)
+                
+                print(f"Total cached files: {stats.get('total_files', 0):,}")
                 print()
-            
-            print(f"HDR files: {stats.get('hdr_files', 0):,}")
-            print("=" * 60)
+                
+                if 'by_action' in stats and stats['by_action']:
+                    print("By action:")
+                    for action, count in sorted(stats['by_action'].items(), key=lambda x: x[1], reverse=True):
+                        if action:
+                            print(f"  {action:30} {count:,}")
+                    print()
+                
+                if 'by_resolution' in stats and stats['by_resolution']:
+                    print("Top resolutions:")
+                    for resolution, count in list(stats['by_resolution'].items())[:10]:
+                        print(f"  {resolution:15} {count:,}")
+                    print()
+                
+                if 'by_codec_video' in stats and stats['by_codec_video']:
+                    print("Top video codecs:")
+                    for codec, count in list(stats['by_codec_video'].items())[:10]:
+                        print(f"  {codec:15} {count:,}")
+                    print()
+                
+                if 'by_codec_audio' in stats and stats['by_codec_audio']:
+                    print("Top audio codecs:")
+                    for codec, count in list(stats['by_codec_audio'].items())[:10]:
+                        print(f"  {codec:15} {count:,}")
+                    print()
+                
+                print(f"HDR files: {stats.get('hdr_files', 0):,}")
+                print("=" * 60)
+            else:
+                print("⚠️  No directories specified for statistics")
+                print()
     
     finally:
         scanner.db.close()
