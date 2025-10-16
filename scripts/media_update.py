@@ -58,8 +58,20 @@ python3 media_update.py --dir "/path/to/media" --type both
 # Process single file
 python3 media_update.py --file "/path/to/file.mkv" --type video
 
+# Downgrade 4K videos to 1080p with automatic filename updating
+python3 media_update.py --file "/path/to/Movie.4K.mkv" --downgrade-resolution
+
 # Audio-only conversion
 python3 media_update.py --dir "/music/folder" --type audio
+
+# Force enhanced stereo creation (boosted dialogue)
+python3 media_update.py --file "/path/to/movie.mkv" --force-stereo
+
+# Downgrade 4K/higher resolution to 1080p maximum
+python3 media_update.py --file "/path/to/4k-movie.mkv" --downgrade-resolution
+
+# Combine options
+python3 media_update.py --dir "/path/to/media" --force-stereo --downgrade-resolution
 
 SUPPORTED FORMATS:
 -----------------
@@ -324,6 +336,150 @@ COMPRESSOR_RELEASE = '250'   # Release time
 ENHANCED_STEREO_TITLE = f'English Stereo (C{CENTER_BOOST}-R{COMPRESSOR_RATIO}-AAC-VBR{AAC_QUALITY_VBR})'
 FORCE_STEREO_TITLE = f'English Stereo (Dialogue-C{CENTER_BOOST}-R{COMPRESSOR_RATIO}-AAC-VBR{AAC_QUALITY_VBR})'
 STANDARD_STEREO_TITLE = f'English Stereo (AAC-CBR{AAC_BITRATE_CBR})'
+
+# Resolution indicators that should be replaced in filenames
+RESOLUTION_PATTERNS = [
+    # 4K/UHD patterns
+    (r'\b(4K|UHD|2160p?)\b', '1080p'),
+    # 1440p patterns  
+    (r'\b1440p?\b', '1080p'),
+    # Other high resolution patterns
+    (r'\b(1800p?|1620p?|1200p?)\b', '1080p'),
+    # Handle cases where resolution might be at end before file extension
+    (r'\.(4K|UHD|2160p?)\.(mkv|mp4|avi)', r'.1080p.\2'),
+]
+
+# Subtitle and supporting file extensions
+SUPPORTING_FILE_EXTENSIONS = ['.srt', '.vtt', '.ass', '.ssa', '.sub', '.idx', '.sup', '.txt', '.nfo']
+
+def detect_hdr_video(probe):
+    """
+    Detect if video stream contains HDR content (HDR10, HDR10+, Dolby Vision, HLG).
+    
+    Args:
+        probe (dict): ffmpeg.probe() result dictionary
+        
+    Returns:
+        dict: HDR information with keys:
+            - is_hdr (bool): True if HDR content detected
+            - hdr_type (str): Type of HDR (HDR10, HDR10+, Dolby Vision, HLG, or None)
+            - color_transfer (str): Transfer characteristic (smpte2084, arib-std-b67, etc.)
+            - color_primaries (str): Color primaries (bt2020, bt709, etc.)
+            - color_space (str): Color space (bt2020nc, bt709, etc.)
+            - pix_fmt (str): Pixel format (yuv420p10le, yuv420p, etc.)
+            - bit_depth (int): Bit depth (8, 10, 12)
+    """
+    hdr_info = {
+        'is_hdr': False,
+        'hdr_type': None,
+        'color_transfer': None,
+        'color_primaries': None,
+        'color_space': None,
+        'pix_fmt': None,
+        'bit_depth': 8
+    }
+    
+    try:
+        # Find video stream
+        video_stream = next((s for s in probe['streams'] if s['codec_type'] == 'video'), None)
+        if not video_stream:
+            return hdr_info
+        
+        # Extract color information
+        color_transfer = video_stream.get('color_transfer', '')
+        color_primaries = video_stream.get('color_primaries', '')
+        color_space = video_stream.get('color_space', '')
+        pix_fmt = video_stream.get('pix_fmt', '')
+        
+        # Store values
+        hdr_info['color_transfer'] = color_transfer
+        hdr_info['color_primaries'] = color_primaries
+        hdr_info['color_space'] = color_space
+        hdr_info['pix_fmt'] = pix_fmt
+        
+        # Determine bit depth from pixel format
+        if '10le' in pix_fmt or '10be' in pix_fmt or 'p10' in pix_fmt:
+            hdr_info['bit_depth'] = 10
+        elif '12le' in pix_fmt or '12be' in pix_fmt or 'p12' in pix_fmt:
+            hdr_info['bit_depth'] = 12
+        else:
+            hdr_info['bit_depth'] = 8
+        
+        # Detect HDR types
+        if color_transfer == 'smpte2084':
+            # PQ transfer function = HDR10/HDR10+
+            hdr_info['is_hdr'] = True
+            hdr_info['hdr_type'] = 'HDR10'
+            # Check for HDR10+ dynamic metadata (would need side_data_list analysis)
+            logging.info(f"HDR10 content detected (PQ/SMPTE ST 2084 transfer)")
+        elif color_transfer == 'arib-std-b67':
+            # HLG transfer function
+            hdr_info['is_hdr'] = True
+            hdr_info['hdr_type'] = 'HLG'
+            logging.info(f"HLG (Hybrid Log-Gamma) HDR content detected")
+        elif color_primaries == 'bt2020' and hdr_info['bit_depth'] > 8:
+            # BT.2020 color primaries with 10/12-bit = likely HDR even without explicit transfer
+            hdr_info['is_hdr'] = True
+            hdr_info['hdr_type'] = 'HDR (BT.2020)'
+            logging.info(f"HDR content detected (BT.2020 color primaries, {hdr_info['bit_depth']}-bit)")
+        
+        # Check for Dolby Vision (look for side_data or codec-specific markers)
+        if 'side_data_list' in video_stream:
+            for side_data in video_stream['side_data_list']:
+                if side_data.get('side_data_type') == 'DOVI configuration record':
+                    hdr_info['is_hdr'] = True
+                    hdr_info['hdr_type'] = 'Dolby Vision'
+                    logging.info(f"Dolby Vision HDR content detected")
+                    break
+        
+        return hdr_info
+        
+    except Exception as e:
+        logging.warning(f"Error detecting HDR: {e}")
+        return hdr_info
+
+def build_hdr_tonemap_filter(hdr_info, scale_filter=None):
+    """
+    Build FFmpeg filter for HDR to SDR tone mapping.
+    
+    Args:
+        hdr_info (dict): HDR information from detect_hdr_video()
+        scale_filter (str, optional): Existing scale filter (e.g., 'scale=1920:-2')
+        
+    Returns:
+        str: FFmpeg video filter string for tone mapping, or None if no tone mapping needed
+    """
+    if not hdr_info['is_hdr']:
+        return scale_filter  # Return existing scale filter if provided, otherwise None
+    
+    # Build tone mapping filter using zscale
+    # zscale handles color space conversion better than scale for HDR
+    tonemap_filters = []
+    
+    # Step 1: Convert to linear light (required for tone mapping)
+    tonemap_filters.append('zscale=t=linear:npl=100')
+    
+    # Step 2: Apply tone mapping to compress HDR range to SDR
+    # Use Hable (filmic) tone mapping for natural results
+    tonemap_filters.append('format=gbrpf32le')
+    tonemap_filters.append('zscale=p=bt709')
+    tonemap_filters.append('tonemap=tonemap=hable:desat=0')
+    
+    # Step 3: Convert to SDR color space (BT.709)
+    tonemap_filters.append('zscale=t=bt709:m=bt709:r=tv')
+    
+    # Step 4: Convert to 8-bit YUV 4:2:0 for compatibility
+    tonemap_filters.append('format=yuv420p')
+    
+    # Step 5: Add scaling if requested
+    if scale_filter:
+        tonemap_filters.append(scale_filter.replace('scale=', 'scale=w=').replace(':', ':h='))
+    
+    filter_string = ','.join(tonemap_filters)
+    logging.info(f"Built HDR→SDR tone mapping filter for {hdr_info['hdr_type']}")
+    logging.debug(f"Tone mapping filter: {filter_string}")
+    
+    return filter_string
 
 def detect_hardware_acceleration():
     """
@@ -839,6 +995,109 @@ def batch_notify_plex():
     
     return success
 
+def update_filename_resolution(filepath, target_resolution='1080p'):
+    """
+    Update filename to reflect new resolution, replacing high-resolution indicators.
+    
+    Args:
+        filepath (str): Original file path
+        target_resolution (str): Target resolution (default: '1080p')
+    
+    Returns:
+        str: Updated file path with resolution indicator replaced
+    """
+    import re
+    
+    # Get directory, filename, and extension
+    directory = os.path.dirname(filepath)
+    filename = os.path.basename(filepath)
+    name, ext = os.path.splitext(filename)
+    
+    # Apply resolution patterns
+    updated_name = name
+    for pattern, replacement in RESOLUTION_PATTERNS:
+        # Use target_resolution instead of hardcoded replacement if pattern expects it
+        if replacement == '1080p':
+            replacement = target_resolution
+        updated_name = re.sub(pattern, replacement, updated_name, flags=re.IGNORECASE)
+    
+    # If no pattern matched but we're downgrading, add resolution indicator
+    if updated_name == name:  # No changes made
+        # Check if we need to add resolution indicator
+        # Add it before any quality indicators like WEBDL, BluRay, etc.
+        quality_patterns = r'(\b(?:WEBDL|WEB-DL|BluRay|BDRip|DVDRip|HDRip)\b)'
+        match = re.search(quality_patterns, updated_name, re.IGNORECASE)
+        if match:
+            # Insert before quality indicator
+            updated_name = updated_name[:match.start()] + target_resolution + ' ' + updated_name[match.start():]
+        else:
+            # Just append to the end
+            updated_name = updated_name + ' ' + target_resolution
+    
+    # Reconstruct the full path
+    new_filename = updated_name + ext
+    new_filepath = os.path.join(directory, new_filename)
+    
+    logging.info(f"Resolution filename update: {filename} -> {new_filename}")
+    return new_filepath
+
+def find_and_rename_supporting_files(original_path, new_path):
+    """
+    Find supporting files (subtitles, etc.) and rename them to match the new video filename.
+    
+    Args:
+        original_path (str): Original video file path
+        new_path (str): New video file path
+    
+    Returns:
+        list: List of (old_path, new_path) tuples for renamed files
+    """
+    renamed_files = []
+    
+    if not os.path.exists(original_path):
+        return renamed_files
+    
+    # Get base names without extensions
+    original_dir = os.path.dirname(original_path)
+    original_base = os.path.splitext(os.path.basename(original_path))[0]
+    new_base = os.path.splitext(os.path.basename(new_path))[0]
+    
+    # Only proceed if the base names are actually different
+    if original_base == new_base:
+        return renamed_files
+    
+    # Look for supporting files in the same directory
+    try:
+        for filename in os.listdir(original_dir):
+            # Check if this file starts with the original base name
+            if filename.startswith(original_base):
+                file_path = os.path.join(original_dir, filename)
+                
+                # Skip the original video file itself
+                if file_path == original_path:
+                    continue
+                
+                # Check if it's a supporting file type
+                _, ext = os.path.splitext(filename)
+                if ext.lower() in SUPPORTING_FILE_EXTENSIONS:
+                    # Create new filename
+                    suffix = filename[len(original_base):]  # Get everything after the base name
+                    new_filename = new_base + suffix
+                    new_file_path = os.path.join(original_dir, new_filename)
+                    
+                    # Rename the file
+                    try:
+                        os.rename(file_path, new_file_path)
+                        renamed_files.append((file_path, new_file_path))
+                        logging.info(f"Renamed supporting file: {filename} -> {new_filename}")
+                    except OSError as e:
+                        logging.warning(f"Could not rename supporting file {file_path}: {e}")
+    
+    except OSError as e:
+        logging.warning(f"Could not list directory {original_dir} for supporting files: {e}")
+    
+    return renamed_files
+
 def extract_pgs_subtitles(input_file, probe):
     """
     Extract PGS subtitles as separate .sup files.
@@ -891,7 +1150,7 @@ def extract_pgs_subtitles(input_file, probe):
                 logging.warning(f"Error extracting PGS subtitle stream {idx}: {e}")
     
     return extracted_files
-def build_ffmpeg_command(input_file, probe=None, force_stereo=False):
+def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_resolution=False):
     """
     Build ffmpeg command-line arguments for transcoding the input file.
     Uses GPU acceleration when available, falls back to software encoding.
@@ -899,6 +1158,7 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False):
         input_file (str): Path to the input media file.
         probe (dict, optional): ffmpeg.probe result. If None, probe will be called.
         force_stereo (bool): Force creation of enhanced stereo track even if stereo already exists.
+        downgrade_resolution (bool): Downgrade video resolution to 1080p maximum if source is higher.
     Returns:
         list: A list of ffmpeg command-line arguments (excluding 'ffmpeg' and '-i' input).
     """
@@ -1245,21 +1505,88 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False):
             subtitle_codecs += [f'-c:s:{sub_idx}', 'mov_text']
             sub_idx += 1
 
+    # Detect video resolution and determine if scaling is needed
+    video_width = 0
+    video_height = 0
+    needs_scaling = False
+    scale_filter = ''
+    
+    if downgrade_resolution:
+        for stream in probe['streams']:
+            if stream['codec_type'] == 'video':
+                video_width = int(stream.get('width', 0))
+                video_height = int(stream.get('height', 0))
+                break
+        
+        # Check if resolution is higher than 1080p
+        if video_height > 1080:
+            needs_scaling = True
+            # Calculate scaling while preserving aspect ratio
+            # Scale to 1080p height, let width adjust proportionally
+            scale_filter = 'scale=-2:1080'  # -2 ensures width is even number
+            logging.info(f"Video resolution {video_width}x{video_height} will be downgraded to 1080p")
+        elif video_width > 1920:  # Handle ultra-wide scenarios
+            needs_scaling = True
+            scale_filter = 'scale=1920:-2'  # Scale width to 1920, adjust height proportionally
+            logging.info(f"Video resolution {video_width}x{video_height} will be downgraded to 1920px width")
+    
+    # Detect HDR content
+    hdr_info = detect_hdr_video(probe)
+    
+    # Build tone mapping filter if HDR detected
+    video_filter = None
+    if hdr_info['is_hdr']:
+        logging.info(f"🎨 HDR content detected: {hdr_info['hdr_type']}")
+        logging.info(f"   Color: {hdr_info['color_primaries']}, Transfer: {hdr_info['color_transfer']}, {hdr_info['bit_depth']}-bit")
+        
+        # Build tone mapping filter (with optional scaling)
+        video_filter = build_hdr_tonemap_filter(hdr_info, scale_filter if needs_scaling else None)
+        
+        # Reset scaling flag since it's now in the tone map filter
+        if needs_scaling:
+            needs_scaling = False
+            scale_filter = None
+            
+        logging.info(f"✅ HDR→SDR tone mapping will be applied")
+    elif needs_scaling:
+        # No HDR, but we have scaling
+        video_filter = scale_filter
+    
     # Detect hardware acceleration capabilities
     hwaccel = detect_hardware_acceleration()
     
     # Build video encoding args based on available acceleration
+    # NOTE: HDR tone mapping requires software encoding (zscale filter not compatible with VAAPI)
     video_args = []
-    if hwaccel['method'] == 'vaapi':
-        video_args = ['-c:v', hwaccel['encoder']] + hwaccel['extra_args'] + ['-qp', '23']
-        logging.info("Using VAAPI hardware acceleration")
+    if hdr_info['is_hdr']:
+        # Force software encoding for HDR tone mapping (zscale not supported in VAAPI)
+        if video_filter:
+            video_args = ['-c:v', 'libx264', '-vf', video_filter, '-crf', '23', '-preset', 'medium']
+        else:
+            video_args = ['-c:v', 'libx264', '-crf', '23', '-preset', 'medium']
+        logging.info(f"Using software encoding for HDR tone mapping")
+    elif hwaccel['method'] == 'vaapi':
+        if needs_scaling:
+            # VAAPI scaling - insert scale before hwupload
+            vaapi_extra_args = ['-vaapi_device', '/dev/dri/renderD128', '-vf', f'{scale_filter},format=nv12,hwupload']
+        else:
+            vaapi_extra_args = hwaccel['extra_args']
+        video_args = ['-c:v', hwaccel['encoder']] + vaapi_extra_args + ['-qp', '23']
+        logging.info(f"Using VAAPI hardware acceleration{' with resolution scaling' if needs_scaling else ''}")
     elif hwaccel['method'] == 'software_optimized':
-        video_args = ['-c:v', hwaccel['encoder']] + hwaccel['extra_args'] + ['-crf', '23']
-        logging.info("Using optimized software encoding")
+        if needs_scaling:
+            software_extra_args = hwaccel['extra_args'] + ['-vf', scale_filter]
+        else:
+            software_extra_args = hwaccel['extra_args']
+        video_args = ['-c:v', hwaccel['encoder']] + software_extra_args + ['-crf', '23']
+        logging.info(f"Using optimized software encoding{' with resolution scaling' if needs_scaling else ''}")
     else:
         # Basic fallback
-        video_args = ['-c:v', 'libx264', '-crf', '23', '-preset', 'fast']
-        logging.info("Using basic software encoding")
+        if needs_scaling:
+            video_args = ['-c:v', 'libx264', '-vf', scale_filter, '-crf', '23', '-preset', 'fast']
+        else:
+            video_args = ['-c:v', 'libx264', '-crf', '23', '-preset', 'fast']
+        logging.info(f"Using basic software encoding{' with resolution scaling' if needs_scaling else ''}")
 
     # Check if we have any audio to process
     has_audio = bool(audio_maps)
@@ -1377,7 +1704,7 @@ def build_audio_ffmpeg_command(input_file, probe=None):
     
     return args
 
-def transcode_file(input_file, force_stereo=False):
+def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
     # Determine if this is a video or audio file
     is_video = input_file.lower().endswith(VIDEO_EXTS)
     is_audio = input_file.lower().endswith(AUDIO_EXTS)
@@ -1393,7 +1720,17 @@ def transcode_file(input_file, force_stereo=False):
     else:  # is_audio
         target_ext = '.mp3'
     
+    # Update filename for resolution downgrade if needed
     base = os.path.splitext(input_file)[0]
+    if is_video and downgrade_resolution:
+        # Check if we actually need to downgrade (will be determined later from probe data)
+        potential_new_path = update_filename_resolution(input_file, '1080p')
+        potential_base = os.path.splitext(potential_new_path)[0]
+        # We'll finalize this decision after we check the actual video resolution
+        base_for_resolution_downgrade = potential_base
+    else:
+        base_for_resolution_downgrade = base
+    
     final_output_file = base + target_ext
     
     # Always use temp file for atomic operations to prevent corrupted files
@@ -1484,12 +1821,33 @@ def transcode_file(input_file, force_stereo=False):
                         needs_audio_metadata_fix = True
                         logging.info(f"Found unlabeled audio stream that needs English language tag")
             
-            # Enhanced skip logic - only skip if format AND metadata are perfect AND not forcing stereo
+            # Check if resolution downgrading is needed
+            needs_resolution_downgrade = False
+            if downgrade_resolution:
+                for stream in probe['streams']:
+                    if stream['codec_type'] == 'video':
+                        video_width = int(stream.get('width', 0))
+                        video_height = int(stream.get('height', 0))
+                        if video_height > 1080 or video_width > 1920:
+                            needs_resolution_downgrade = True
+                            logging.info(f"Resolution {video_width}x{video_height} exceeds 1080p - downgrading needed")
+                            
+                            # Update final output filename to reflect new resolution
+                            final_output_file = base_for_resolution_downgrade + target_ext
+                            temp_output_file = base_for_resolution_downgrade + '.tmp' + target_ext
+                            output_file = temp_output_file
+                            logging.info(f"Output filename updated for resolution downgrade: {os.path.basename(final_output_file)}")
+                        break
+            
+            # Enhanced skip logic - only skip if format AND metadata are perfect AND not forcing stereo AND not downgrading resolution
             if (vcodec == 'h264' and all_aac and input_file.lower().endswith(('.mp4', '.mkv')) and 
-                not needs_stereo_track and not needs_51_from_71 and not needs_audio_metadata_fix and not has_non_english_audio and not force_stereo):
+                not needs_stereo_track and not needs_51_from_71 and not needs_audio_metadata_fix and not has_non_english_audio and not force_stereo and not needs_resolution_downgrade):
                 print(f"Skipping: {input_file} is already H.264/AAC with proper audio metadata and all tracks.")
                 logging.info(f"Skipping: {input_file} is already H.264/AAC with proper audio metadata and all tracks.")
                 return
+            elif needs_resolution_downgrade:
+                print(f"Transcoding: {input_file} - downgrading resolution from high definition to 1080p.")
+                logging.info(f"Transcoding: {input_file} - downgrading resolution from high definition to 1080p.")
             elif force_stereo and has_stereo:
                 print(f"Transcoding: {input_file} - forcing enhanced stereo creation with boosted dialogue (--force-stereo).")
                 logging.info(f"Transcoding: {input_file} - forcing enhanced stereo creation with boosted dialogue (--force-stereo).")
@@ -1537,7 +1895,7 @@ def transcode_file(input_file, force_stereo=False):
     
     # Build appropriate command based on file type
     if is_video:
-        args, has_audio = build_ffmpeg_command(input_file, probe, force_stereo)
+        args, has_audio = build_ffmpeg_command(input_file, probe, force_stereo, downgrade_resolution)
         # Skip conversion if no audio streams will be processed
         if not has_audio:
             logging.warning(f"Skipping {input_file}: No English or unlabeled audio streams found")
@@ -1567,6 +1925,16 @@ def transcode_file(input_file, force_stereo=False):
                     os.rename(output_file, final_output_file)
                     logging.info(f"Atomically moved temp file to final location: {final_output_file}")
                     print(f"Atomically moved temp file to final location: {final_output_file}")
+                    
+                    # Handle supporting file renaming if resolution was downgraded
+                    if is_video and downgrade_resolution and needs_resolution_downgrade:
+                        original_base_file = base + target_ext
+                        if final_output_file != original_base_file:
+                            renamed_supporting_files = find_and_rename_supporting_files(original_base_file, final_output_file)
+                            if renamed_supporting_files:
+                                print(f"Renamed {len(renamed_supporting_files)} supporting file(s) to match new resolution filename")
+                                logging.info(f"Renamed {len(renamed_supporting_files)} supporting files for resolution downgrade")
+                    
                 except Exception as e:
                     logging.error(f"Failed to atomically move temp file to final location: {e}")
                     print(f"Failed to atomically move temp file to final location: {e}")
@@ -1637,6 +2005,8 @@ def main():
                        help='Type of media to process: video, audio, or both (default: both)')
     parser.add_argument('--force-stereo', action='store_true', 
                        help='Force creation of enhanced stereo track even if stereo already exists (useful for dialogue enhancement)')
+    parser.add_argument('--downgrade-resolution', action='store_true',
+                       help='Downgrade video resolution to 1080p maximum (scales down 4K/higher resolutions while preserving aspect ratio and updating filename to reflect new resolution)')
     args = parser.parse_args()
 
     if args.file:
@@ -1644,7 +2014,7 @@ def main():
             logging.error("Invalid file.")
             print("Invalid file.")
             sys.exit(1)
-        transcode_file(args.file, args.force_stereo)
+        transcode_file(args.file, args.force_stereo, args.downgrade_resolution)
         
         # Perform batch Plex notification for single file
         if processed_files:
@@ -1682,7 +2052,7 @@ def main():
                 logging.error("Invalid file.")
                 print("Invalid file.")
                 sys.exit(1)
-            transcode_file(file_path, args.force_stereo)
+            transcode_file(file_path, args.force_stereo, args.downgrade_resolution)
             
             # Perform batch Plex notification for single file  
             if processed_files:
@@ -1709,7 +2079,7 @@ def main():
     for idx, f in enumerate(files, 1):
         print(f"[{idx}/{len(files)}] Processing: {f}")
         try:
-            transcode_file(f, args.force_stereo)
+            transcode_file(f, args.force_stereo, args.downgrade_resolution)
         except Exception as e:
             logging.error(f"Error processing {f}: {e}")
             print(f"Error processing {f}: {e}")
