@@ -133,10 +133,28 @@ class MediaScanner:
         
         # Get all media files in directory tree
         media_files = []
+        dir_count = 0
+        skipped_dirs = []
+        
+        print(f"   🔍 Walking directory tree...")
         for root, dirs, files in os.walk(directory):
+            dir_count += 1
+            
             # Skip music directories entirely (performance optimization)
             # Modify dirs in-place to prevent os.walk from descending into them
+            original_dirs = dirs.copy()
             dirs[:] = [d for d in dirs if d.lower() not in ('music', 'audiobooks', 'podcasts')]
+            
+            # Track what we skipped for debugging
+            for d in original_dirs:
+                if d not in dirs:
+                    skipped_path = os.path.join(root, d)
+                    skipped_dirs.append(skipped_path)
+                    print(f"   ⏭️  Skipping: {skipped_path}")
+            
+            # Show progress every 100 directories
+            if dir_count % 100 == 0:
+                print(f"   📂 Traversed {dir_count} directories, found {len(media_files)} video files so far...")
             
             # Track subdirectories that contain media
             for file in files:
@@ -147,12 +165,14 @@ class MediaScanner:
                     if root not in self.scanned_directories:
                         self.scanned_directories.append(root)
         
+        print(f"   ✅ Traversal complete: {dir_count} directories walked, {len(skipped_dirs)} skipped")
+        
         total_files = len(media_files)
         if total_files == 0:
             print(f"   No media files found")
             return
         
-        print(f"   Found {total_files} media files")
+        print(f"   📹 Found {total_files} video files to process")
         
         # Process each file
         for idx, filepath in enumerate(media_files, 1):
