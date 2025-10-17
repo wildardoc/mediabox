@@ -2,22 +2,33 @@
 
 ## Install on Windows 11
 
+### **Automated Installation (Recommended)**
+
 1. **Clone repository:**
    ```powershell
    git clone https://github.com/wildardoc/mediabox.git
    cd mediabox\scripts
    ```
 
-2. **Run installer** (as Administrator recommended):
+2. **Install Python & FFmpeg** (as Administrator):
    ```powershell
-   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-   .\install-media-converter.ps1
+   winget install Python.Python.3.12
+   winget install Gyan.FFmpeg
    ```
 
-3. **Restart terminal** and test:
+3. **Close and reopen terminal**, then run installer:
+   ```cmd
+   .\install-media-converter.bat
+   ```
+
+4. **Restart terminal** and test:
    ```cmd
    media-converter --help
    ```
+
+### **Manual Installation**
+
+If the automated installer fails, see [MANUAL_WINDOWS_INSTALL.md](MANUAL_WINDOWS_INSTALL.md) for step-by-step instructions.
 
 ## What Gets Installed
 
