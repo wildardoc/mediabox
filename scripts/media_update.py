@@ -113,6 +113,14 @@ except ImportError:
     DATABASE_AVAILABLE = False
     print("Warning: media_database not available. Caching disabled.")
 
+# Import file locking for distributed processing
+try:
+    from file_lock import FileLock
+    FILELOCK_AVAILABLE = True
+except ImportError:
+    FILELOCK_AVAILABLE = False
+    print("Warning: file_lock not available. Distributed processing may have conflicts.")
+
 def load_env_file():
     """Load environment variables from .env file if it exists."""
     # Use env_file path from config if available, otherwise fall back to default
@@ -1713,9 +1721,29 @@ def build_audio_ffmpeg_command(input_file, probe=None):
     return args
 
 def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
-    # Determine if this is a video or audio file
-    is_video = input_file.lower().endswith(VIDEO_EXTS)
-    is_audio = input_file.lower().endswith(AUDIO_EXTS)
+    # Try to acquire file lock to prevent multiple workers from processing the same file
+    file_lock = None
+    if FILELOCK_AVAILABLE:
+        file_lock = FileLock(input_file, timeout=1800)  # 30 minute timeout
+        
+        if not file_lock.acquire(wait=False):
+            lock_info = file_lock.get_lock_info()
+            if lock_info:
+                locked_by = lock_info.get('hostname', 'unknown')
+                locked_at = lock_info.get('locked_at', 'unknown time')
+                logging.info(f"⏭️  Skipping {os.path.basename(input_file)} - locked by {locked_by} at {locked_at}")
+                print(f"⏭️  Skipping {os.path.basename(input_file)} - already being processed by {locked_by}")
+            else:
+                logging.info(f"⏭️  Skipping {os.path.basename(input_file)} - lock exists")
+                print(f"⏭️  Skipping {os.path.basename(input_file)} - already being processed")
+            return
+        
+        logging.info(f"🔒 Lock acquired for: {os.path.basename(input_file)}")
+    
+    try:
+        # Determine if this is a video or audio file
+        is_video = input_file.lower().endswith(VIDEO_EXTS)
+        is_audio = input_file.lower().endswith(AUDIO_EXTS)
     
     if not is_video and not is_audio:
         logging.warning(f"Unsupported file format: {input_file}")
@@ -2030,6 +2058,11 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
     except Exception as e:
         logging.error(f"Exception during transcoding: {e}")
         print(f"Exception during transcoding: {e}")
+    finally:
+        # Always release the file lock
+        if file_lock and FILELOCK_AVAILABLE:
+            file_lock.release()
+            logging.info(f"🔓 Lock released for: {os.path.basename(input_file)}")
 
 def cleanup_orphaned_temp_files():
     """Clean up any orphaned .tmp.mp4 or .tmp.mp3 files from previous interrupted runs."""
