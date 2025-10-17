@@ -1744,320 +1744,320 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
         # Determine if this is a video or audio file
         is_video = input_file.lower().endswith(VIDEO_EXTS)
         is_audio = input_file.lower().endswith(AUDIO_EXTS)
-    
-    if not is_video and not is_audio:
-        logging.warning(f"Unsupported file format: {input_file}")
-        print(f"Unsupported file format: {input_file}")
-        return
-    
-    # Determine target format and extension
-    if is_video:
-        target_ext = '.mp4'
-    else:  # is_audio
-        target_ext = '.mp3'
-    
-    # Update filename for resolution downgrade if needed
-    base = os.path.splitext(input_file)[0]
-    if is_video and downgrade_resolution:
-        # Check if we actually need to downgrade (will be determined later from probe data)
-        potential_new_path = update_filename_resolution(input_file, '1080p')
-        potential_base = os.path.splitext(potential_new_path)[0]
-        # We'll finalize this decision after we check the actual video resolution
-        base_for_resolution_downgrade = potential_base
-    else:
-        base_for_resolution_downgrade = base
-    
-    final_output_file = base + target_ext
-    
-    # Always use temp file for atomic operations to prevent corrupted files
-    # This addresses Issue #30 - incomplete output files after interruption
-    temp_output_file = base + '.tmp' + target_ext
-    output_file = temp_output_file
-    
-    # Check if we're transcoding to the same filename (for logging purposes)
-    try:
-        same_file = os.path.samefile(input_file, final_output_file)
-    except Exception:
-        # Fallback to case-insensitive comparison if samefile fails (e.g., file doesn't exist yet)
-        same_file = input_file.lower() == final_output_file.lower()
         
-    global unfinished_output_file
-    unfinished_output_file = output_file
-
-    # Check if conversion is needed
-    try:
-        # Try to use cached probe data if available
-        fingerprint = None
-        probe = None
-        using_cache = False
-        
-        if DATABASE_AVAILABLE and hasattr(transcode_file, 'db'):
-            fingerprint = transcode_file.db.get_file_fingerprint(input_file)
-            if fingerprint and transcode_file.db.has_cached_probe(fingerprint):
-                probe = transcode_file.db.get_cached_probe(fingerprint)
-                if probe:
-                    using_cache = True
-                    logging.info(f"Using cached probe data for: {input_file}")
-                    print(f"📦 Using cached metadata for: {os.path.basename(input_file)}")
-        
-        # If no cache, do normal ffmpeg probe
-        if probe is None:
-            probe = ffmpeg.probe(input_file)
-            logging.info(f"Probed file (no cache): {input_file}")
-            
-            # Store probe in database for future use
-            if DATABASE_AVAILABLE and hasattr(transcode_file, 'db') and fingerprint:
-                try:
-                    # We'll determine action below, store with placeholder for now
-                    transcode_file.db.store_probe(fingerprint, probe, action='pending')
-                    logging.info(f"📦 Cached probe data for future use")
-                except Exception as e:
-                    logging.warning(f"Failed to cache probe data: {e}")
-        
-        if is_video:
-            # Video file logic (existing)
-            vcodec = next((s['codec_name'] for s in probe['streams'] if s['codec_type'] == 'video'), None)
-            audio_codecs = [s['codec_name'] for s in probe['streams'] if s['codec_type'] == 'audio']
-            all_aac = all(codec == 'aac' for codec in audio_codecs) if audio_codecs else True
-            
-            # Check if we have surround sound and what additional tracks might be needed
-            has_surround = False
-            has_stereo = False
-            has_51 = False
-            has_71 = False
-            has_processable_surround = False
-            
-            for stream in probe['streams']:
-                if stream['codec_type'] == 'audio':
-                    channels = int(stream.get('channels', 0))
-                    channel_layout = stream.get('channel_layout', 'unknown')
-                    
-                    if channels == 2:
-                        has_stereo = True
-                    elif channels == 6:
-                        has_surround = True
-                        has_51 = True
-                        if channel_layout != 'unknown':
-                            has_processable_surround = True
-                    elif channels == 8:
-                        has_surround = True
-                        has_71 = True
-                        if channel_layout != 'unknown':
-                            has_processable_surround = True
-            
-            # Determine what tracks need to be created
-            # Check if we need enhanced stereo based on existing tracks with current settings
-            has_enhanced_stereo = False
-            if has_stereo:
-                for stream in probe['streams']:
-                    if (stream['codec_type'] == 'audio' and 
-                        int(stream.get('channels', 0)) == 2):
-                        track_title = stream.get('tags', {}).get('title', '')
-                        current_settings_pattern = f'C{CENTER_BOOST}-R{COMPRESSOR_RATIO}'
-                        if current_settings_pattern in track_title or 'Dialogue-' + current_settings_pattern in track_title:
-                            has_enhanced_stereo = True
-                            logging.info(f"Found existing enhanced stereo with current settings: '{track_title}'")
-                            break
-                        elif 'English Stereo' in track_title and ('AAC-VBR' in track_title or 'Enhanced' in track_title):
-                            logging.info(f"Found enhanced stereo with outdated settings: '{track_title}' - will re-process")
-            
-            needs_stereo_track = has_processable_surround and (not has_enhanced_stereo or force_stereo)
-            needs_51_from_71 = has_71 and not has_51 and has_processable_surround
-            
-            # Check if audio metadata needs fixing
-            needs_audio_metadata_fix = False
-            has_non_english_audio = False
-            
-            for stream in probe['streams']:
-                if stream['codec_type'] == 'audio':
-                    lang = stream.get('tags', {}).get('language', '').lower()
-                    
-                    # Check for non-English audio that should be removed
-                    # Treat 'und' (undefined) as unlabeled, not non-English
-                    if lang and lang != 'eng' and lang != 'und':
-                        has_non_english_audio = True
-                        logging.info(f"Found non-English audio stream (language: {lang}) that needs removal")
-                    
-                    # Check for missing language tags on English-compatible streams
-                    elif not lang or lang == 'und':  # Unlabeled or undefined stream that should be tagged as English
-                        needs_audio_metadata_fix = True
-                        logging.info(f"Found unlabeled audio stream that needs English language tag")
-            
-            # Check if resolution downgrading is needed
-            needs_resolution_downgrade = False
-            if downgrade_resolution:
-                for stream in probe['streams']:
-                    if stream['codec_type'] == 'video':
-                        video_width = int(stream.get('width', 0))
-                        video_height = int(stream.get('height', 0))
-                        if video_height > 1080 or video_width > 1920:
-                            needs_resolution_downgrade = True
-                            logging.info(f"Resolution {video_width}x{video_height} exceeds 1080p - downgrading needed")
-                            
-                            # Update final output filename to reflect new resolution
-                            final_output_file = base_for_resolution_downgrade + target_ext
-                            temp_output_file = base_for_resolution_downgrade + '.tmp' + target_ext
-                            output_file = temp_output_file
-                            logging.info(f"Output filename updated for resolution downgrade: {os.path.basename(final_output_file)}")
-                        break
-            
-            # Enhanced skip logic - only skip if format AND metadata are perfect AND not forcing stereo AND not downgrading resolution
-            if (vcodec == 'h264' and all_aac and input_file.lower().endswith(('.mp4', '.mkv')) and 
-                not needs_stereo_track and not needs_51_from_71 and not needs_audio_metadata_fix and not has_non_english_audio and not force_stereo and not needs_resolution_downgrade):
-                print(f"Skipping: {input_file} is already H.264/AAC with proper audio metadata and all tracks.")
-                logging.info(f"Skipping: {input_file} is already H.264/AAC with proper audio metadata and all tracks.")
-                return
-            elif needs_resolution_downgrade:
-                print(f"Transcoding: {input_file} - downgrading resolution from high definition to 1080p.")
-                logging.info(f"Transcoding: {input_file} - downgrading resolution from high definition to 1080p.")
-            elif force_stereo and has_stereo:
-                print(f"Transcoding: {input_file} - forcing enhanced stereo creation with boosted dialogue (--force-stereo).")
-                logging.info(f"Transcoding: {input_file} - forcing enhanced stereo creation with boosted dialogue (--force-stereo).")
-            elif needs_51_from_71:
-                print(f"Transcoding: {input_file} has 7.1 surround - will create 5.1 and enhanced stereo tracks.")
-                logging.info(f"Transcoding: {input_file} has 7.1 surround - will create 5.1 and enhanced stereo tracks.")
-            elif needs_stereo_track:
-                print(f"Transcoding: {input_file} has surround sound - will create enhanced stereo track with boosted dialogue.")
-                logging.info(f"Transcoding: {input_file} has surround sound - will create enhanced stereo track with boosted dialogue.")
-            elif needs_audio_metadata_fix:
-                print(f"Transcoding: {input_file} needs audio language metadata fixes.")
-                logging.info(f"Transcoding: {input_file} needs audio language metadata fixes.")
-            elif has_non_english_audio:
-                print(f"Transcoding: {input_file} has non-English audio tracks to remove.")
-                logging.info(f"Transcoding: {input_file} has non-English audio tracks to remove.")
-        
-        else:  # is_audio
-            # Audio file logic
-            acodec = next((s['codec_name'] for s in probe['streams'] if s['codec_type'] == 'audio'), None)
-            
-            if acodec == 'mp3' and input_file.lower().endswith('.mp3'):
-                print(f"Skipping: {input_file} is already MP3.")
-                logging.info(f"Skipping: {input_file} is already MP3.")
-                return
-                
-            print(f"Converting: {input_file} ({acodec}) -> MP3")
-            logging.info(f"Converting: {input_file} ({acodec}) -> MP3")
-            
-    except ffmpeg.Error as e:
-        print(f"ffprobe error for {input_file}: {e.stderr.decode()}")
-        logging.warning(f"ffprobe error for {input_file}: {e.stderr.decode()}")
-        raise  # <--- This will prevent transcoding invalid files
-    except Exception as e:
-        print(f"Unexpected error probing {input_file}, will attempt to transcode. Reason: {e}")
-        logging.warning(f"Unexpected error probing {input_file}, will attempt to transcode. Reason: {e}")
-        probe = None
-
-    print(f"Transcoding: {input_file} -> {final_output_file}")
-    
-    # Extract PGS subtitles if this is a video file
-    if is_video and probe:
-        extracted_subtitles = extract_pgs_subtitles(input_file, probe)
-        if extracted_subtitles:
-            print(f"Extracted {len(extracted_subtitles)} PGS subtitle file(s)")
-    
-    # Build appropriate command based on file type
-    if is_video:
-        args, has_audio = build_ffmpeg_command(input_file, probe, force_stereo, downgrade_resolution)
-        # Skip conversion if no audio streams will be processed
-        if not has_audio:
-            logging.warning(f"Skipping {input_file}: No English or unlabeled audio streams found")
-            print(f"Skipping {input_file}: No English or unlabeled audio streams found")
+        if not is_video and not is_audio:
+            logging.warning(f"Unsupported file format: {input_file}")
+            print(f"Unsupported file format: {input_file}")
             return
-    else:  # is_audio
-        args = build_audio_ffmpeg_command(input_file, probe)
-        has_audio = True  # Audio files always have audio to process
-    
-    cmd = ['ffmpeg', '-i', input_file] + args + [output_file]
-    logging.info(f"Transcoding: {input_file} -> {final_output_file}")
-    if output_file != final_output_file:
-        logging.info(f"Using temporary file: {output_file}")
-    logging.info("Command: " + " ".join(cmd))
-    try:
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        logging.info("ffmpeg output:\n" + result.stdout)
-        logging.info("ffmpeg errors:\n" + result.stderr)
-        if result.returncode == 0:
-            unfinished_output_file = None
-            
-            # Atomically move temp file to final location (always required now)
-            if output_file != final_output_file:
-                try:
-                    if os.path.exists(final_output_file):
-                        os.remove(final_output_file)  # Remove existing file before atomic rename
-                    os.rename(output_file, final_output_file)
-                    logging.info(f"Atomically moved temp file to final location: {final_output_file}")
-                    print(f"Atomically moved temp file to final location: {final_output_file}")
-                    
-                    # Handle supporting file renaming if resolution was downgraded
-                    if is_video and downgrade_resolution and needs_resolution_downgrade:
-                        original_base_file = base + target_ext
-                        if final_output_file != original_base_file:
-                            renamed_supporting_files = find_and_rename_supporting_files(original_base_file, final_output_file)
-                            if renamed_supporting_files:
-                                print(f"Renamed {len(renamed_supporting_files)} supporting file(s) to match new resolution filename")
-                                logging.info(f"Renamed {len(renamed_supporting_files)} supporting files for resolution downgrade")
-                    
-                except Exception as e:
-                    logging.error(f"Failed to atomically move temp file to final location: {e}")
-                    print(f"Failed to atomically move temp file to final location: {e}")
-                    return
-            else:
-                # This should not happen with always-temp logic, but handle gracefully
-                logging.warning(f"Unexpected: temp file same as final file: {final_output_file}")
-            
-            logging.info(f"Success: {final_output_file}")
-            print(f"Success: {final_output_file}")
-            
-            # Update database with conversion results
-            if DATABASE_AVAILABLE and hasattr(transcode_file, 'db') and fingerprint:
-                try:
-                    action_taken = []
-                    if needs_resolution_downgrade:
-                        action_taken.append('resolution_downgraded')
-                    if needs_stereo_track or force_stereo:
-                        action_taken.append('stereo_created')
-                    if needs_51_from_71:
-                        action_taken.append('5.1_from_7.1')
-                    if needs_audio_metadata_fix:
-                        action_taken.append('metadata_fixed')
-                    if has_non_english_audio:
-                        action_taken.append('non_english_removed')
-                    if not action_taken:
-                        action_taken.append('video_converted')
-                    
-                    # Update database: pass final_output_file (converted file location)
-                    # If input_file will be deleted, original_fingerprint + final_output_file
-                    # handles the cache cleanup automatically
-                    transcode_file.db.update_after_conversion(
-                        fingerprint,
-                        new_filepath=final_output_file,
-                        success=True,
-                        action_taken=', '.join(action_taken)
-                    )
-                    logging.info(f"✅ Database updated: {', '.join(action_taken)}")
-                except Exception as e:
-                    logging.warning(f"Failed to update database after conversion: {e}")
-            
-            # Add to batch notification list instead of immediate notification
-            global processed_files
-            processed_files.append(final_output_file)
-            
-            # Only remove source file if it's different from final output file
-            # Database update above will handle cache cleanup for deleted original
-            if input_file != final_output_file:
-                try:
-                    os.remove(input_file)
-                    logging.info(f"Removed source file: {input_file}")
-                    print(f"Removed source file: {input_file}")
-                except Exception as e:
-                    logging.error(f"Could not remove source file: {e}")
-                    print(f"Could not remove source file: {e}")
+        
+        # Determine target format and extension
+        if is_video:
+            target_ext = '.mp4'
+        else:  # is_audio
+            target_ext = '.mp3'
+        
+        # Update filename for resolution downgrade if needed
+        base = os.path.splitext(input_file)[0]
+        if is_video and downgrade_resolution:
+            # Check if we actually need to downgrade (will be determined later from probe data)
+            potential_new_path = update_filename_resolution(input_file, '1080p')
+            potential_base = os.path.splitext(potential_new_path)[0]
+            # We'll finalize this decision after we check the actual video resolution
+            base_for_resolution_downgrade = potential_base
         else:
-            logging.error(f"Failed: {input_file}")
-            print(f"Failed: {input_file}")
-    except Exception as e:
-        logging.error(f"Exception during transcoding: {e}")
-        print(f"Exception during transcoding: {e}")
+            base_for_resolution_downgrade = base
+        
+        final_output_file = base + target_ext
+        
+        # Always use temp file for atomic operations to prevent corrupted files
+        # This addresses Issue #30 - incomplete output files after interruption
+        temp_output_file = base + '.tmp' + target_ext
+        output_file = temp_output_file
+        
+        # Check if we're transcoding to the same filename (for logging purposes)
+        try:
+            same_file = os.path.samefile(input_file, final_output_file)
+        except Exception:
+            # Fallback to case-insensitive comparison if samefile fails (e.g., file doesn't exist yet)
+            same_file = input_file.lower() == final_output_file.lower()
+            
+        global unfinished_output_file
+        unfinished_output_file = output_file
+
+        # Check if conversion is needed
+        try:
+            # Try to use cached probe data if available
+            fingerprint = None
+            probe = None
+            using_cache = False
+        
+            if DATABASE_AVAILABLE and hasattr(transcode_file, 'db'):
+                fingerprint = transcode_file.db.get_file_fingerprint(input_file)
+                if fingerprint and transcode_file.db.has_cached_probe(fingerprint):
+                    probe = transcode_file.db.get_cached_probe(fingerprint)
+                    if probe:
+                        using_cache = True
+                        logging.info(f"Using cached probe data for: {input_file}")
+                        print(f"📦 Using cached metadata for: {os.path.basename(input_file)}")
+        
+            # If no cache, do normal ffmpeg probe
+            if probe is None:
+                probe = ffmpeg.probe(input_file)
+                logging.info(f"Probed file (no cache): {input_file}")
+            
+                # Store probe in database for future use
+                if DATABASE_AVAILABLE and hasattr(transcode_file, 'db') and fingerprint:
+                    try:
+                        # We'll determine action below, store with placeholder for now
+                        transcode_file.db.store_probe(fingerprint, probe, action='pending')
+                        logging.info(f"📦 Cached probe data for future use")
+                    except Exception as e:
+                        logging.warning(f"Failed to cache probe data: {e}")
+        
+            if is_video:
+                # Video file logic (existing)
+                vcodec = next((s['codec_name'] for s in probe['streams'] if s['codec_type'] == 'video'), None)
+                audio_codecs = [s['codec_name'] for s in probe['streams'] if s['codec_type'] == 'audio']
+                all_aac = all(codec == 'aac' for codec in audio_codecs) if audio_codecs else True
+            
+                # Check if we have surround sound and what additional tracks might be needed
+                has_surround = False
+                has_stereo = False
+                has_51 = False
+                has_71 = False
+                has_processable_surround = False
+            
+                for stream in probe['streams']:
+                    if stream['codec_type'] == 'audio':
+                        channels = int(stream.get('channels', 0))
+                        channel_layout = stream.get('channel_layout', 'unknown')
+                    
+                        if channels == 2:
+                            has_stereo = True
+                        elif channels == 6:
+                            has_surround = True
+                            has_51 = True
+                            if channel_layout != 'unknown':
+                                has_processable_surround = True
+                        elif channels == 8:
+                            has_surround = True
+                            has_71 = True
+                            if channel_layout != 'unknown':
+                                has_processable_surround = True
+            
+                # Determine what tracks need to be created
+                # Check if we need enhanced stereo based on existing tracks with current settings
+                has_enhanced_stereo = False
+                if has_stereo:
+                    for stream in probe['streams']:
+                        if (stream['codec_type'] == 'audio' and 
+                            int(stream.get('channels', 0)) == 2):
+                            track_title = stream.get('tags', {}).get('title', '')
+                            current_settings_pattern = f'C{CENTER_BOOST}-R{COMPRESSOR_RATIO}'
+                            if current_settings_pattern in track_title or 'Dialogue-' + current_settings_pattern in track_title:
+                                has_enhanced_stereo = True
+                                logging.info(f"Found existing enhanced stereo with current settings: '{track_title}'")
+                                break
+                            elif 'English Stereo' in track_title and ('AAC-VBR' in track_title or 'Enhanced' in track_title):
+                                logging.info(f"Found enhanced stereo with outdated settings: '{track_title}' - will re-process")
+            
+                needs_stereo_track = has_processable_surround and (not has_enhanced_stereo or force_stereo)
+                needs_51_from_71 = has_71 and not has_51 and has_processable_surround
+            
+                # Check if audio metadata needs fixing
+                needs_audio_metadata_fix = False
+                has_non_english_audio = False
+            
+                for stream in probe['streams']:
+                    if stream['codec_type'] == 'audio':
+                        lang = stream.get('tags', {}).get('language', '').lower()
+                    
+                        # Check for non-English audio that should be removed
+                        # Treat 'und' (undefined) as unlabeled, not non-English
+                        if lang and lang != 'eng' and lang != 'und':
+                            has_non_english_audio = True
+                            logging.info(f"Found non-English audio stream (language: {lang}) that needs removal")
+                    
+                        # Check for missing language tags on English-compatible streams
+                        elif not lang or lang == 'und':  # Unlabeled or undefined stream that should be tagged as English
+                            needs_audio_metadata_fix = True
+                            logging.info(f"Found unlabeled audio stream that needs English language tag")
+            
+                # Check if resolution downgrading is needed
+                needs_resolution_downgrade = False
+                if downgrade_resolution:
+                    for stream in probe['streams']:
+                        if stream['codec_type'] == 'video':
+                            video_width = int(stream.get('width', 0))
+                            video_height = int(stream.get('height', 0))
+                            if video_height > 1080 or video_width > 1920:
+                                needs_resolution_downgrade = True
+                                logging.info(f"Resolution {video_width}x{video_height} exceeds 1080p - downgrading needed")
+                            
+                                # Update final output filename to reflect new resolution
+                                final_output_file = base_for_resolution_downgrade + target_ext
+                                temp_output_file = base_for_resolution_downgrade + '.tmp' + target_ext
+                                output_file = temp_output_file
+                                logging.info(f"Output filename updated for resolution downgrade: {os.path.basename(final_output_file)}")
+                            break
+            
+                # Enhanced skip logic - only skip if format AND metadata are perfect AND not forcing stereo AND not downgrading resolution
+                if (vcodec == 'h264' and all_aac and input_file.lower().endswith(('.mp4', '.mkv')) and 
+                    not needs_stereo_track and not needs_51_from_71 and not needs_audio_metadata_fix and not has_non_english_audio and not force_stereo and not needs_resolution_downgrade):
+                    print(f"Skipping: {input_file} is already H.264/AAC with proper audio metadata and all tracks.")
+                    logging.info(f"Skipping: {input_file} is already H.264/AAC with proper audio metadata and all tracks.")
+                    return
+                elif needs_resolution_downgrade:
+                    print(f"Transcoding: {input_file} - downgrading resolution from high definition to 1080p.")
+                    logging.info(f"Transcoding: {input_file} - downgrading resolution from high definition to 1080p.")
+                elif force_stereo and has_stereo:
+                    print(f"Transcoding: {input_file} - forcing enhanced stereo creation with boosted dialogue (--force-stereo).")
+                    logging.info(f"Transcoding: {input_file} - forcing enhanced stereo creation with boosted dialogue (--force-stereo).")
+                elif needs_51_from_71:
+                    print(f"Transcoding: {input_file} has 7.1 surround - will create 5.1 and enhanced stereo tracks.")
+                    logging.info(f"Transcoding: {input_file} has 7.1 surround - will create 5.1 and enhanced stereo tracks.")
+                elif needs_stereo_track:
+                    print(f"Transcoding: {input_file} has surround sound - will create enhanced stereo track with boosted dialogue.")
+                    logging.info(f"Transcoding: {input_file} has surround sound - will create enhanced stereo track with boosted dialogue.")
+                elif needs_audio_metadata_fix:
+                    print(f"Transcoding: {input_file} needs audio language metadata fixes.")
+                    logging.info(f"Transcoding: {input_file} needs audio language metadata fixes.")
+                elif has_non_english_audio:
+                    print(f"Transcoding: {input_file} has non-English audio tracks to remove.")
+                    logging.info(f"Transcoding: {input_file} has non-English audio tracks to remove.")
+        
+            else:  # is_audio
+                # Audio file logic
+                acodec = next((s['codec_name'] for s in probe['streams'] if s['codec_type'] == 'audio'), None)
+            
+                if acodec == 'mp3' and input_file.lower().endswith('.mp3'):
+                    print(f"Skipping: {input_file} is already MP3.")
+                    logging.info(f"Skipping: {input_file} is already MP3.")
+                    return
+                
+                print(f"Converting: {input_file} ({acodec}) -> MP3")
+                logging.info(f"Converting: {input_file} ({acodec}) -> MP3")
+            
+        except ffmpeg.Error as e:
+            print(f"ffprobe error for {input_file}: {e.stderr.decode()}")
+            logging.warning(f"ffprobe error for {input_file}: {e.stderr.decode()}")
+            raise  # <--- This will prevent transcoding invalid files
+        except Exception as e:
+            print(f"Unexpected error probing {input_file}, will attempt to transcode. Reason: {e}")
+            logging.warning(f"Unexpected error probing {input_file}, will attempt to transcode. Reason: {e}")
+            probe = None
+
+        print(f"Transcoding: {input_file} -> {final_output_file}")
+    
+        # Extract PGS subtitles if this is a video file
+        if is_video and probe:
+            extracted_subtitles = extract_pgs_subtitles(input_file, probe)
+            if extracted_subtitles:
+                print(f"Extracted {len(extracted_subtitles)} PGS subtitle file(s)")
+    
+        # Build appropriate command based on file type
+        if is_video:
+            args, has_audio = build_ffmpeg_command(input_file, probe, force_stereo, downgrade_resolution)
+            # Skip conversion if no audio streams will be processed
+            if not has_audio:
+                logging.warning(f"Skipping {input_file}: No English or unlabeled audio streams found")
+                print(f"Skipping {input_file}: No English or unlabeled audio streams found")
+                return
+        else:  # is_audio
+            args = build_audio_ffmpeg_command(input_file, probe)
+            has_audio = True  # Audio files always have audio to process
+    
+        cmd = ['ffmpeg', '-i', input_file] + args + [output_file]
+        logging.info(f"Transcoding: {input_file} -> {final_output_file}")
+        if output_file != final_output_file:
+            logging.info(f"Using temporary file: {output_file}")
+        logging.info("Command: " + " ".join(cmd))
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            logging.info("ffmpeg output:\n" + result.stdout)
+            logging.info("ffmpeg errors:\n" + result.stderr)
+            if result.returncode == 0:
+                unfinished_output_file = None
+            
+                # Atomically move temp file to final location (always required now)
+                if output_file != final_output_file:
+                    try:
+                        if os.path.exists(final_output_file):
+                            os.remove(final_output_file)  # Remove existing file before atomic rename
+                        os.rename(output_file, final_output_file)
+                        logging.info(f"Atomically moved temp file to final location: {final_output_file}")
+                        print(f"Atomically moved temp file to final location: {final_output_file}")
+                    
+                        # Handle supporting file renaming if resolution was downgraded
+                        if is_video and downgrade_resolution and needs_resolution_downgrade:
+                            original_base_file = base + target_ext
+                            if final_output_file != original_base_file:
+                                renamed_supporting_files = find_and_rename_supporting_files(original_base_file, final_output_file)
+                                if renamed_supporting_files:
+                                    print(f"Renamed {len(renamed_supporting_files)} supporting file(s) to match new resolution filename")
+                                    logging.info(f"Renamed {len(renamed_supporting_files)} supporting files for resolution downgrade")
+                    
+                    except Exception as e:
+                        logging.error(f"Failed to atomically move temp file to final location: {e}")
+                        print(f"Failed to atomically move temp file to final location: {e}")
+                        return
+                else:
+                    # This should not happen with always-temp logic, but handle gracefully
+                    logging.warning(f"Unexpected: temp file same as final file: {final_output_file}")
+            
+                logging.info(f"Success: {final_output_file}")
+                print(f"Success: {final_output_file}")
+            
+                # Update database with conversion results
+                if DATABASE_AVAILABLE and hasattr(transcode_file, 'db') and fingerprint:
+                    try:
+                        action_taken = []
+                        if needs_resolution_downgrade:
+                            action_taken.append('resolution_downgraded')
+                        if needs_stereo_track or force_stereo:
+                            action_taken.append('stereo_created')
+                        if needs_51_from_71:
+                            action_taken.append('5.1_from_7.1')
+                        if needs_audio_metadata_fix:
+                            action_taken.append('metadata_fixed')
+                        if has_non_english_audio:
+                            action_taken.append('non_english_removed')
+                        if not action_taken:
+                            action_taken.append('video_converted')
+                    
+                        # Update database: pass final_output_file (converted file location)
+                        # If input_file will be deleted, original_fingerprint + final_output_file
+                        # handles the cache cleanup automatically
+                        transcode_file.db.update_after_conversion(
+                            fingerprint,
+                            new_filepath=final_output_file,
+                            success=True,
+                            action_taken=', '.join(action_taken)
+                        )
+                        logging.info(f"✅ Database updated: {', '.join(action_taken)}")
+                    except Exception as e:
+                        logging.warning(f"Failed to update database after conversion: {e}")
+            
+                # Add to batch notification list instead of immediate notification
+                global processed_files
+                processed_files.append(final_output_file)
+            
+                # Only remove source file if it's different from final output file
+                # Database update above will handle cache cleanup for deleted original
+                if input_file != final_output_file:
+                    try:
+                        os.remove(input_file)
+                        logging.info(f"Removed source file: {input_file}")
+                        print(f"Removed source file: {input_file}")
+                    except Exception as e:
+                        logging.error(f"Could not remove source file: {e}")
+                        print(f"Could not remove source file: {e}")
+            else:
+                logging.error(f"Failed: {input_file}")
+                print(f"Failed: {input_file}")
+        except Exception as e:
+            logging.error(f"Exception during transcoding: {e}")
+            print(f"Exception during transcoding: {e}")
     finally:
         # Always release the file lock
         if file_lock and FILELOCK_AVAILABLE:
