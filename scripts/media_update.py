@@ -1790,6 +1790,7 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
             fingerprint = None
             probe = None
             using_cache = False
+            cached_action = None
         
             if DATABASE_AVAILABLE and hasattr(transcode_file, 'db'):
                 fingerprint = transcode_file.db.get_file_fingerprint(input_file)
@@ -1799,6 +1800,21 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                         using_cache = True
                         logging.info(f"Using cached probe data for: {input_file}")
                         print(f"📦 Using cached metadata for: {os.path.basename(input_file)}")
+                        
+                        # Check if we already processed this file successfully
+                        cache_file = transcode_file.db._get_cache_file_path(input_file)
+                        cache_data = transcode_file.db._load_cache(cache_file)
+                        cached_entry = cache_data.get(fingerprint['hash'], {})
+                        cached_action = cached_entry.get('action')
+                        
+                        # Skip if already successfully converted (action = 'skip' means converted)
+                        if cached_action == 'skip':
+                            if not force_stereo and not downgrade_resolution:
+                                logging.info(f"⏭️  Skipping {os.path.basename(input_file)} - already converted successfully")
+                                print(f"⏭️  Skipping {os.path.basename(input_file)} - already converted (use --force-stereo to reprocess)")
+                                return
+                            else:
+                                logging.info(f"Re-processing {os.path.basename(input_file)} due to --force-stereo or --downgrade-resolution")
         
             # If no cache, do normal ffmpeg probe
             if probe is None:
