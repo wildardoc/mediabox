@@ -1807,6 +1807,12 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                         cached_entry = cache_data.get(fingerprint['hash'], {})
                         cached_action = cached_entry.get('action')
                         
+                        # DEBUG: Log what we found
+                        logging.info(f"🔍 DEBUG: Fingerprint hash: {fingerprint['hash'][:16]}...")
+                        logging.info(f"🔍 DEBUG: Cache has {len(cache_data)} entries")
+                        logging.info(f"🔍 DEBUG: Cached action: {cached_action}")
+                        logging.info(f"🔍 DEBUG: force_stereo={force_stereo}, downgrade_resolution={downgrade_resolution}")
+                        
                         # Skip if already successfully converted (action = 'skip' means converted)
                         if cached_action == 'skip':
                             if not force_stereo and not downgrade_resolution:
