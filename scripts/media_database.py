@@ -59,8 +59,25 @@ class MediaDatabase:
         try:
             # Write to temp file first, then rename (atomic operation)
             temp_file = cache_file + '.tmp'
+            
+            # Remove temp file if it exists from a previous interrupted run
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except OSError:
+                    pass  # Ignore if we can't remove it
+            
             with open(temp_file, 'w') as f:
                 json.dump(cache_data, f, indent=2, default=str)
+            
+            # On Windows, os.rename fails if destination exists
+            # Remove destination first, then rename
+            if os.path.exists(cache_file):
+                try:
+                    os.remove(cache_file)
+                except OSError:
+                    pass  # Ignore if we can't remove it
+            
             os.rename(temp_file, cache_file)
         except IOError as e:
             print(f"Warning: Could not save cache file {cache_file}: {e}")
