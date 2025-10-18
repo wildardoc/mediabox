@@ -565,6 +565,9 @@ def get_video_files(root_dir):
     files = []
     for dirpath, _, filenames in os.walk(root_dir):
         for filename in filenames:
+            # Skip temporary files from previous runs
+            if filename.endswith(('.tmp.mp4', '.tmp.mkv', '.tmp.avi', '.tmp.mov')):
+                continue
             if filename.lower().endswith(VIDEO_EXTS):
                 files.append(os.path.join(dirpath, filename))
     return files
@@ -585,6 +588,9 @@ def get_audio_files(root_dir):
     files = []
     for dirpath, _, filenames in os.walk(root_dir):
         for filename in filenames:
+            # Skip temporary files from previous runs
+            if filename.endswith(('.tmp.mp3', '.tmp.m4a', '.tmp.flac')):
+                continue
             if filename.lower().endswith(AUDIO_EXTS):
                 # Skip already converted MP3 files
                 if not filename.lower().endswith('.mp3'):
