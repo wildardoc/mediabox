@@ -103,6 +103,9 @@ import signal
 import json
 import requests
 import time
+import platform
+import shutil
+import tempfile
 from pathlib import Path
 
 # Import media database for caching
@@ -560,6 +563,51 @@ def detect_hardware_acceleration():
     
     logging.warning("No suitable encoding method found, using basic software fallback")
     return hwaccel_options
+
+def is_network_drive(path):
+    """
+    Detect if a path is on a network drive in a cross-platform way.
+    Returns True if the path is on a network drive that might have SMB/CIFS issues on Windows.
+    """
+    try:
+        abs_path = os.path.abspath(path)
+        
+        if platform.system() == "Windows":
+            # Windows: Check if path starts with \\server\ (UNC) or is a mapped network drive
+            if abs_path.startswith('\\\\'):
+                return True
+            
+            # Check if it's a mapped network drive (like M:)
+            drive_letter = abs_path[:2]  # e.g., "M:"
+            if len(drive_letter) == 2 and drive_letter[1] == ':':
+                try:
+                    import subprocess
+                    # Use 'net use' to check if drive is mapped to network
+                    result = subprocess.run(['net', 'use', drive_letter], 
+                                          capture_output=True, text=True, timeout=5)
+                    if result.returncode == 0 and ('Remote' in result.stdout or 'Microsoft Windows Network' in result.stdout):
+                        return True
+                except:
+                    pass
+        else:
+            # Linux/Unix: Check if path is mounted as NFS, SMB/CIFS, or other network FS
+            try:
+                import subprocess
+                # Check mount points for network filesystems
+                result = subprocess.run(['mount'], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    mount_lines = result.stdout.split('\n')
+                    for line in mount_lines:
+                        if abs_path in line and ('nfs' in line or 'cifs' in line or 'smb' in line):
+                            # NFS and other network FS work fine, only return True for problematic ones
+                            if 'cifs' in line or 'smb' in line:
+                                return True
+            except:
+                pass
+                
+        return False
+    except:
+        return False
 
 def get_video_files(root_dir):
     files = []
@@ -1777,8 +1825,21 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
         
         # Always use temp file for atomic operations to prevent corrupted files
         # This addresses Issue #30 - incomplete output files after interruption
-        temp_output_file = base + '.tmp' + target_ext
-        output_file = temp_output_file
+        
+        # Windows network drive fix: Use local temp dir for large transcoding operations
+        if is_network_drive(input_file):
+            # Network drive detected - use local temp directory to avoid SMB/CIFS muxing issues
+            temp_dir = tempfile.gettempdir()
+            temp_filename = os.path.basename(input_file)
+            if temp_filename.endswith(target_ext):
+                temp_filename = temp_filename[:-len(target_ext)]
+            temp_output_file = os.path.join(temp_dir, f"{temp_filename}.tmp{target_ext}")
+            output_file = temp_output_file
+            logging.info(f"🌐 Network drive detected - using local temp: {temp_output_file}")
+        else:
+            # Local drive - use same directory temp file
+            temp_output_file = base + '.tmp' + target_ext
+            output_file = temp_output_file
         
         # Check if we're transcoding to the same filename (for logging purposes)
         try:
@@ -2012,9 +2073,22 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                     try:
                         if os.path.exists(final_output_file):
                             os.remove(final_output_file)  # Remove existing file before atomic rename
-                        os.rename(output_file, final_output_file)
-                        logging.info(f"Atomically moved temp file to final location: {final_output_file}")
-                        print(f"Atomically moved temp file to final location: {final_output_file}")
+                        
+                        # Check if this is a cross-drive move (local temp to network drive)
+                        output_drive = os.path.splitdrive(output_file)[0]
+                        final_drive = os.path.splitdrive(final_output_file)[0]
+                        
+                        if output_drive.lower() != final_drive.lower():
+                            # Cross-drive copy required (can't use os.rename across drives)
+                            shutil.copy2(output_file, final_output_file)
+                            os.remove(output_file)  # Clean up temp file
+                            logging.info(f"🌐 Copied temp file from local to network drive: {final_output_file}")
+                            print(f"🌐 Copied temp file from local to network drive: {final_output_file}")
+                        else:
+                            # Same drive - use atomic rename
+                            os.rename(output_file, final_output_file)
+                            logging.info(f"Atomically moved temp file to final location: {final_output_file}")
+                            print(f"Atomically moved temp file to final location: {final_output_file}")
                     
                         # Handle supporting file renaming if resolution was downgraded
                         if is_video and downgrade_resolution and needs_resolution_downgrade:
