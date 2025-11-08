@@ -290,6 +290,39 @@ if [[ -f "$SCRIPT_DIR/requirements.txt" ]]; then
     cp "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
 fi
 
+# Prompt for library directories
+echo ""
+echo "─────────────────────────────────────────────────────────────"
+log_info "Configure Media Library Directories"
+echo ""
+echo "Enter the paths to your media libraries on this system."
+echo "These are the directories where your media files are stored."
+echo "Press Enter to skip a directory if not applicable."
+echo ""
+
+read -p "TV Shows directory [e.g., /mnt/media/tv]: " TV_DIR
+read -p "Movies directory [e.g., /mnt/media/movies]: " MOVIES_DIR
+read -p "Music directory [e.g., /mnt/media/music]: " MUSIC_DIR
+read -p "Miscellaneous directory (optional): " MISC_DIR
+
+# Validate at least one directory is provided
+if [[ -z "$TV_DIR" && -z "$MOVIES_DIR" && -z "$MUSIC_DIR" ]]; then
+    log_warning "No library directories provided."
+    log_warning "You can configure these later by editing: $INSTALL_DIR/mediabox_config.json"
+fi
+
+# Validate directories exist
+for dir_var in TV_DIR MOVIES_DIR MUSIC_DIR MISC_DIR; do
+    dir_path="${!dir_var}"
+    if [[ -n "$dir_path" && ! -d "$dir_path" ]]; then
+        log_warning "Directory does not exist: $dir_path"
+        read -p "Continue anyway? [y/N]: " CONTINUE
+        if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
+            error_exit "Installation cancelled. Please verify directory paths." 1
+        fi
+    fi
+done
+
 # Create configuration file
 log_info "Creating configuration file..."
 cat > "$INSTALL_DIR/mediabox_config.json" << EOF
@@ -298,10 +331,10 @@ cat > "$INSTALL_DIR/mediabox_config.json" << EOF
   "env_file": "$INSTALL_DIR/.env",
   "download_dirs": [],
   "library_dirs": {
-    "tv": "",
-    "movies": "",
-    "music": "",
-    "misc": ""
+    "tv": "$TV_DIR",
+    "movies": "$MOVIES_DIR",
+    "music": "$MUSIC_DIR",
+    "misc": "$MISC_DIR"
   },
   "container_support": false,
   "plex_integration": {
@@ -575,6 +608,38 @@ else
     log_warning "Database caching: DISABLED (media_database.py not found)"
 fi
 
+echo ""
+
+# Offer to configure Plex integration
+echo "─────────────────────────────────────────────────────────────"
+echo ""
+log_info "Configure Plex Integration (optional)"
+echo ""
+echo "The media converter can automatically notify Plex to scan"
+echo "converted files. This requires:"
+echo "  • Plex server URL and authentication token"
+echo "  • Path mappings (if Plex is on a different server)"
+echo ""
+read -p "Configure Plex integration now? [y/N]: " CONFIGURE_PLEX
+
+if [[ "$CONFIGURE_PLEX" =~ ^[Yy]$ ]]; then
+    echo ""
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [[ -f "$SCRIPT_DIR/configure-plex-integration.sh" ]]; then
+        bash "$SCRIPT_DIR/configure-plex-integration.sh"
+    else
+        log_warning "configure-plex-integration.sh not found in $SCRIPT_DIR"
+        log_info "You can configure Plex later by running:"
+        echo "  cd $SCRIPT_DIR && ./configure-plex-integration.sh"
+    fi
+else
+    log_info "Skipping Plex configuration."
+    log_info "You can configure it later by running:"
+    echo "  cd $SCRIPT_DIR && ./configure-plex-integration.sh"
+fi
+
+echo ""
+echo "─────────────────────────────────────────────────────────────"
 echo ""
 echo "Next steps:"
 echo "  1. Reload your shell: source ~/.bashrc"

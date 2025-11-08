@@ -240,11 +240,13 @@ calculate_optimal_jobs() {
         echo "[$timestamp] [INFO] High-priority processes detected, reducing jobs to $optimal_jobs" >> "$LOG_FILE"
     fi
     
-    # CPU threshold check
-    if [[ $cpu_usage -gt $MAX_CPU_PERCENT ]]; then
+    # CPU threshold check - but be smart about transcoding workloads
+    # Video transcoding SHOULD use 100% CPU - only reduce if other indicators show stress
+    # Only reduce jobs if CPU is maxed AND (memory is high OR load average is high)
+    if [[ $cpu_usage -gt $MAX_CPU_PERCENT && ( $mem_percent -gt 85 || $(echo "$load_avg > $(( $(nproc) * 2 ))" | bc -l 2>/dev/null || echo 0) -eq 1 ) ]]; then
         optimal_jobs=$(( optimal_jobs - 1 ))
         system_healthy=false
-        log "INFO" "CPU usage high (${cpu_usage}%), reducing jobs to $optimal_jobs" >&2
+        log "INFO" "CPU maxed (${cpu_usage}%) with additional stress indicators (MEM: ${mem_percent}%, LOAD: ${load_avg}), reducing jobs to $optimal_jobs" >&2
     fi
     
     # ZFS-aware memory check - use available memory instead of usage percentage  
@@ -690,17 +692,19 @@ main_processing_loop() {
             # If we have a single-job baseline, only add jobs if resources are manageable
             # BUT: Only apply this check if we already have jobs running
             # If no jobs are running, high resources are from other processes, not our conversions
+            # ALSO: Video transcoding naturally uses 90-100% CPU - don't use CPU baseline for decisions
             if [[ "$can_add_jobs" == "true" && -f "$single_job_baseline_file" && $CURRENT_JOBS -gt 0 ]]; then
                 local single_cpu=$(grep "CPU:" "$single_job_baseline_file" | cut -d: -f2)
                 local single_mem=$(grep "MEM:" "$single_job_baseline_file" | cut -d: -f2)
                 
-                # Only be conservative if current usage is significantly HIGHER than single-job baseline
-                # This indicates system stress beyond what one job normally causes
-                if [[ $current_cpu -gt $((single_cpu + 15)) || $current_mem -gt $((single_mem + 15)) ]]; then
-                    log "INFO" "Current resources (CPU: ${current_cpu}%, MEM: ${current_mem}%) significantly higher than single-job baseline (CPU: ${single_cpu}%, MEM: ${single_mem}%). Being conservative."
+                # Only be conservative based on MEMORY growth, not CPU
+                # Video transcoding SHOULD use 100% CPU - that's efficient
+                # But if memory grows significantly, that indicates actual stress
+                if [[ $current_mem -gt $((single_mem + 20)) ]]; then
+                    log "INFO" "Memory usage (${current_mem}%) significantly higher than single-job baseline (${single_mem}%). Being conservative."
                     can_add_jobs=false
                 else
-                    log "INFO" "Current resources (CPU: ${current_cpu}%, MEM: ${current_mem}%) within acceptable range of single-job baseline (CPU: ${single_cpu}%, MEM: ${single_mem}%). Can add jobs."
+                    log "INFO" "Memory usage (${current_mem}%) within acceptable range of single-job baseline (${single_mem}%). Can add jobs."
                 fi
             elif [[ "$can_add_jobs" == "true" && $CURRENT_JOBS -eq 0 ]]; then
                 # No jobs running - high resources are from other processes

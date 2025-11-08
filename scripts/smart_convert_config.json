@@ -1,5 +1,5 @@
 {
-  "max_cpu_percent": 98,
+  "max_cpu_percent": 100,
   "max_memory_percent": 90,
   "max_load_average": 30.0,
   "min_available_memory_gb": 2,
