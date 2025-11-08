@@ -1796,6 +1796,11 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
             
             # If action is 'pending', check if another machine is already processing it
             elif cached_action == 'pending' and FILELOCK_AVAILABLE:
+                # Add small delay to prevent race conditions between machines
+                import time
+                import random
+                time.sleep(random.uniform(0.5, 2.0))  # Random delay 0.5-2 seconds
+                
                 temp_lock = FileLock(input_file, timeout=1)  # Short timeout for check
                 if not temp_lock.acquire(wait=False):
                     # File is locked by another machine, skip it
