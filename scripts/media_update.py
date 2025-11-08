@@ -1793,6 +1793,24 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                     return
                 else:
                     logging.info(f"Re-processing {os.path.basename(input_file)} due to --force-stereo or --downgrade-resolution")
+            
+            # If action is 'pending', check if another machine is already processing it
+            elif cached_action == 'pending' and FILELOCK_AVAILABLE:
+                temp_lock = FileLock(input_file, timeout=1)  # Short timeout for check
+                if not temp_lock.acquire(wait=False):
+                    # File is locked by another machine, skip it
+                    lock_info = temp_lock.get_lock_info()
+                    if lock_info:
+                        locked_by = lock_info.get('hostname', 'unknown')
+                        logging.info(f"⏭️  Skipping {os.path.basename(input_file)} - already being processed by {locked_by}")
+                        print(f"⏭️  Skipping {os.path.basename(input_file)} - already being processed by {locked_by}")
+                    else:
+                        logging.info(f"⏭️  Skipping {os.path.basename(input_file)} - lock detected")
+                        print(f"⏭️  Skipping {os.path.basename(input_file)} - already being processed")
+                    return
+                else:
+                    # We got the lock, release it and proceed with normal locking below
+                    temp_lock.release()
 
     # SECOND: Try to acquire file lock to prevent multiple workers from processing the same file
     file_lock = None
