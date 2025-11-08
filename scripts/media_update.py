@@ -1775,7 +1775,26 @@ def build_audio_ffmpeg_command(input_file, probe=None):
     return args
 
 def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
-    # Try to acquire file lock to prevent multiple workers from processing the same file
+    # FIRST: Check cache to see if we can skip this file entirely
+    # This prevents unnecessary locking of already-converted files
+    if DATABASE_AVAILABLE and hasattr(transcode_file, 'db'):
+        fingerprint = transcode_file.db.get_file_fingerprint(input_file)
+        if fingerprint and transcode_file.db.has_cached_probe(fingerprint):
+            cache_file = transcode_file.db._get_cache_file_path(input_file)
+            cache_data = transcode_file.db._load_cache(cache_file)
+            cached_entry = cache_data.get(fingerprint['hash'], {})
+            cached_action = cached_entry.get('action')
+            
+            # Skip if already successfully converted (action = 'skip' means converted)
+            if cached_action == 'skip':
+                if not force_stereo and not downgrade_resolution:
+                    logging.info(f"⏭️  Skipping {os.path.basename(input_file)} - already converted successfully")
+                    print(f"⏭️  Skipping {os.path.basename(input_file)} - already converted (use --force-stereo to reprocess)")
+                    return
+                else:
+                    logging.info(f"Re-processing {os.path.basename(input_file)} due to --force-stereo or --downgrade-resolution")
+
+    # SECOND: Try to acquire file lock to prevent multiple workers from processing the same file
     file_lock = None
     if FILELOCK_AVAILABLE:
         file_lock = FileLock(input_file, timeout=1800)  # 30 minute timeout
@@ -1857,7 +1876,6 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
             fingerprint = None
             probe = None
             using_cache = False
-            cached_action = None
         
             if DATABASE_AVAILABLE and hasattr(transcode_file, 'db'):
                 fingerprint = transcode_file.db.get_file_fingerprint(input_file)
@@ -1867,27 +1885,6 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                         using_cache = True
                         logging.info(f"Using cached probe data for: {input_file}")
                         print(f"📦 Using cached metadata for: {os.path.basename(input_file)}")
-                        
-                        # Check if we already processed this file successfully
-                        cache_file = transcode_file.db._get_cache_file_path(input_file)
-                        cache_data = transcode_file.db._load_cache(cache_file)
-                        cached_entry = cache_data.get(fingerprint['hash'], {})
-                        cached_action = cached_entry.get('action')
-                        
-                        # DEBUG: Log what we found
-                        logging.info(f"🔍 DEBUG: Fingerprint hash: {fingerprint['hash'][:16]}...")
-                        logging.info(f"🔍 DEBUG: Cache has {len(cache_data)} entries")
-                        logging.info(f"🔍 DEBUG: Cached action: {cached_action}")
-                        logging.info(f"🔍 DEBUG: force_stereo={force_stereo}, downgrade_resolution={downgrade_resolution}")
-                        
-                        # Skip if already successfully converted (action = 'skip' means converted)
-                        if cached_action == 'skip':
-                            if not force_stereo and not downgrade_resolution:
-                                logging.info(f"⏭️  Skipping {os.path.basename(input_file)} - already converted successfully")
-                                print(f"⏭️  Skipping {os.path.basename(input_file)} - already converted (use --force-stereo to reprocess)")
-                                return
-                            else:
-                                logging.info(f"Re-processing {os.path.basename(input_file)} due to --force-stereo or --downgrade-resolution")
         
             # If no cache, do normal ffmpeg probe
             if probe is None:
