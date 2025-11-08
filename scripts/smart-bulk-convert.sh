@@ -453,19 +453,10 @@ needs_conversion() {
         return 1
     fi
     
-    # For MKV and other formats, check if corresponding MP4 exists
-    if [[ ! "$file" =~ \.mp4$ ]]; then
-        local base_name="${file%.*}"
-        local mp4_file="${base_name}.mp4"
-        if [[ -f "$mp4_file" ]]; then
-            echo "DEBUG: MP4 version exists, skipping: $(basename "$file")" >&2
-            return 1  # Skip if MP4 version exists
-        fi
-    fi
-    
-    # For MP4 files, let media_update.py make the detailed decision
-    # The enhanced logic in media_update.py will check format AND metadata
-    return 0  # Needs conversion/checking
+    # Let media-converter make ALL decisions about conversion needs
+    # It has the cache system, file locking, and detailed format analysis
+    # Smart bulk converter should just find files, not decide conversion needs
+    return 0  # Always queue for media-converter to decide
 }
 
 # Start a conversion job
@@ -482,8 +473,18 @@ start_conversion_job() {
     # Start conversion in background
     (
         cd "$SCRIPT_DIR"
+        # Auto-detect which command to use
+        local base_cmd
+        if command -v media-converter >/dev/null 2>&1; then
+            # Use media-converter wrapper (Mercury/remote installations)
+            base_cmd="media-converter"
+        else
+            # Use python3 directly (main server with local files)
+            base_cmd="python3 media_update.py"
+        fi
+        
         # Build command with optional flags
-        local cmd="media-converter --file \"$input_file\" --type video"
+        local cmd="$base_cmd --file \"$input_file\" --type video"
         if [[ "$FORCE_STEREO" == "true" ]]; then
             cmd="$cmd --force-stereo"
         fi
