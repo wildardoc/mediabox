@@ -483,7 +483,7 @@ start_conversion_job() {
     (
         cd "$SCRIPT_DIR"
         # Build command with optional flags
-        local cmd="python3 media_update.py --file \"$input_file\" --type video"
+        local cmd="media-converter --file \"$input_file\" --type video"
         if [[ "$FORCE_STEREO" == "true" ]]; then
             cmd="$cmd --force-stereo"
         fi
