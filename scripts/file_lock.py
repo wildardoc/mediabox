@@ -51,31 +51,85 @@ class FileLock:
     - file: Path to the file being locked
     """
     
-    def __init__(self, file_path, timeout=300, lock_suffix=".mediabox.lock"):
+    def __init__(self, file_path, timeout=300, lock_suffix=".lock"):
         """
         Initialize file lock.
         
         Args:
             file_path: Path to the file to lock
             timeout: Lock timeout in seconds (default: 300 = 5 minutes)
-            lock_suffix: Suffix for lock file (default: .mediabox.lock)
+            lock_suffix: Suffix for lock file (default: .lock)
         """
         self.file_path = Path(file_path).resolve()
         self.timeout = timeout
-        self.lock_suffix = lock_suffix
         
-        # Lock file path (same directory as target file)
-        self.lock_path = self.file_path.with_suffix(
-            self.file_path.suffix + lock_suffix
-        )
+        # Simple approach: create filename.lock in same directory
+        self.lock_path = self.file_path.parent / (self.file_path.name + lock_suffix)
+        self.target_filename = self.file_path.name
         
         # Current machine info
         self.hostname = socket.gethostname()
         self.pid = os.getpid()
         
+        # Generate unique identifier for this machine/process
+        import uuid
+        self.lock_id = f"{self.hostname}_{self.pid}_{uuid.uuid4().hex[:8]}"
+        
         # Lock info (populated when checking locks)
         self.lock_info = None
         
+    def _try_create_lock(self):
+        """Try to create lock file atomically."""
+        try:
+            with open(self.lock_path, 'x') as f:  # 'x' = exclusive creation
+                lock_data = {
+                    "lock_id": self.lock_id,
+                    "hostname": self.hostname,
+                    "pid": self.pid,
+                    "timestamp": time.time(),
+                    "file": str(self.file_path),
+                    "locked_at": datetime.now().isoformat()
+                }
+                json.dump(lock_data, f, indent=2)
+            return True
+        except FileExistsError:
+            return False
+        except (IOError, OSError):
+            return False
+    
+    def _verify_our_lock(self):
+        """Verify the lock file contains our identifier."""
+        try:
+            with open(self.lock_path, 'r') as f:
+                data = json.load(f)
+                return data.get('lock_id') == self.lock_id
+        except:
+            return False
+    
+    def _cleanup_stale_lock(self, max_age_seconds=21600):  # 6 hours default
+        """Remove lock file if it's older than max_age_seconds."""
+        if not self.lock_path.exists():
+            return
+            
+        try:
+            with open(self.lock_path, 'r') as f:
+                data = json.load(f)
+                
+            lock_timestamp = data.get('timestamp', 0)
+            current_time = time.time()
+            
+            if current_time - lock_timestamp > max_age_seconds:
+                self.lock_path.unlink()
+                print(f"🧹 Removed stale lock (age: {(current_time - lock_timestamp)/3600:.1f} hours)")
+                
+        except (IOError, OSError, json.JSONDecodeError):
+            # If we can't read the lock file, remove it
+            try:
+                self.lock_path.unlink()
+                print("🧹 Removed corrupted lock file")
+            except:
+                pass
+
     def _create_lock_data(self):
         """Create lock data dictionary."""
         return {
@@ -164,7 +218,11 @@ class FileLock:
     
     def acquire(self, wait=False, poll_interval=1.0):
         """
-        Attempt to acquire the lock.
+        Attempt to acquire the lock using simple approach:
+        1. Check if filename.lock exists
+        2. If not, create it with our identifier
+        3. Verify it's our lock file
+        4. Clean up stale locks (6+ hours old)
         
         Args:
             wait: If True, wait for lock to become available
@@ -174,8 +232,34 @@ class FileLock:
             bool: True if lock was acquired, False otherwise
         """
         while True:
-            # Check for existing lock
-            lock_data = self._read_lock_file()
+            # Clean up stale locks first (6 hours = 21600 seconds)
+            self._cleanup_stale_lock(max_age_seconds=21600)
+            
+            # Check if lock file exists
+            if not self.lock_path.exists():
+                # No lock file - try to create one
+                if self._try_create_lock():
+                    # Verify it's our lock file
+                    if self._verify_our_lock():
+                        return True
+                    else:
+                        # Another process beat us, continue loop
+                        continue
+                else:
+                    # Failed to create lock, continue loop
+                    continue
+            else:
+                # Lock file exists - check if it's stale or ours
+                lock_info = self.get_lock_info()
+                if lock_info and lock_info.get('lock_id') == self.lock_id:
+                    # Already our lock
+                    return True
+                
+                if not wait:
+                    return False
+                    
+                # Wait and try again
+                time.sleep(poll_interval)
             
             if lock_data:
                 # Check if lock is stale

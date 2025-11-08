@@ -1775,59 +1775,17 @@ def build_audio_ffmpeg_command(input_file, probe=None):
     return args
 
 def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
-    # FIRST: Check cache to see if we can skip this file entirely
-    # This prevents unnecessary locking of already-converted files
-    if DATABASE_AVAILABLE and hasattr(transcode_file, 'db'):
-        fingerprint = transcode_file.db.get_file_fingerprint(input_file)
-        if fingerprint and transcode_file.db.has_cached_probe(fingerprint):
-            cache_file = transcode_file.db._get_cache_file_path(input_file)
-            cache_data = transcode_file.db._load_cache(cache_file)
-            cached_entry = cache_data.get(fingerprint['hash'], {})
-            cached_action = cached_entry.get('action')
-            
-            # Skip if already successfully converted (action = 'skip' means converted)
-            if cached_action == 'skip':
-                if not force_stereo and not downgrade_resolution:
-                    logging.info(f"⏭️  Skipping {os.path.basename(input_file)} - already converted successfully")
-                    print(f"⏭️  Skipping {os.path.basename(input_file)} - already converted (use --force-stereo to reprocess)")
-                    return
-                else:
-                    logging.info(f"Re-processing {os.path.basename(input_file)} due to --force-stereo or --downgrade-resolution")
-            
-            # If action is 'pending', check if another machine is already processing it
-            elif cached_action == 'pending' and FILELOCK_AVAILABLE:
-                # Add small delay to prevent race conditions between machines
-                import time
-                import random
-                time.sleep(random.uniform(0.5, 2.0))  # Random delay 0.5-2 seconds
-                
-                temp_lock = FileLock(input_file, timeout=1)  # Short timeout for check
-                if not temp_lock.acquire(wait=False):
-                    # File is locked by another machine, skip it
-                    lock_info = temp_lock.get_lock_info()
-                    if lock_info:
-                        locked_by = lock_info.get('hostname', 'unknown')
-                        logging.info(f"⏭️  Skipping {os.path.basename(input_file)} - already being processed by {locked_by}")
-                        print(f"⏭️  Skipping {os.path.basename(input_file)} - already being processed by {locked_by}")
-                    else:
-                        logging.info(f"⏭️  Skipping {os.path.basename(input_file)} - lock detected")
-                        print(f"⏭️  Skipping {os.path.basename(input_file)} - already being processed")
-                    return
-                else:
-                    # We got the lock, release it and proceed with normal locking below
-                    temp_lock.release()
-
-    # SECOND: Try to acquire file lock to prevent multiple workers from processing the same file
+    # Step 1: Try to acquire lock file
     file_lock = None
     if FILELOCK_AVAILABLE:
         file_lock = FileLock(input_file, timeout=1800)  # 30 minute timeout
         
         if not file_lock.acquire(wait=False):
+            # Lock exists - skip this file
             lock_info = file_lock.get_lock_info()
             if lock_info:
                 locked_by = lock_info.get('hostname', 'unknown')
-                locked_at = lock_info.get('locked_at', 'unknown time')
-                logging.info(f"⏭️  Skipping {os.path.basename(input_file)} - locked by {locked_by} at {locked_at}")
+                logging.info(f"⏭️  Skipping {os.path.basename(input_file)} - locked by {locked_by}")
                 print(f"⏭️  Skipping {os.path.basename(input_file)} - already being processed by {locked_by}")
             else:
                 logging.info(f"⏭️  Skipping {os.path.basename(input_file)} - lock exists")
@@ -1837,6 +1795,53 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
         logging.info(f"🔒 Lock acquired for: {os.path.basename(input_file)}")
     
     try:
+        # Step 2: Check if file needs conversion (cache check, probe, etc.)
+        conversion_needed = False
+        
+        # Check cache first
+        if DATABASE_AVAILABLE and hasattr(transcode_file, 'db'):
+            fingerprint = transcode_file.db.get_file_fingerprint(input_file)
+            if fingerprint and transcode_file.db.has_cached_probe(fingerprint):
+                cache_file = transcode_file.db._get_cache_file_path(input_file)
+                cache_data = transcode_file.db._load_cache(cache_file)
+                cached_entry = cache_data.get(fingerprint['hash'], {})
+                cached_action = cached_entry.get('action')
+                
+                # If already converted, no need to process
+                if cached_action == 'skip':
+                    if not force_stereo and not downgrade_resolution:
+                        conversion_needed = False
+                    else:
+                        conversion_needed = True
+                        logging.info(f"Re-processing {os.path.basename(input_file)} due to --force-stereo or --downgrade-resolution")
+                else:
+                    # File needs processing
+                    conversion_needed = True
+            else:
+                # No cache entry, assume needs processing
+                conversion_needed = True
+        else:
+            # No database, assume needs processing  
+            conversion_needed = True
+        
+        # Step 3: Verify lock is still ours (critical check)
+        if file_lock and not file_lock._verify_our_lock():
+            # Someone else took over our lock - abort
+            logging.info(f"⏭️  Lock no longer ours for {os.path.basename(input_file)} - aborting")
+            print(f"⏭️  Lock changed ownership - skipping {os.path.basename(input_file)}")
+            return
+        
+        # Step 4: Take action based on conversion need and lock ownership
+        if not conversion_needed:
+            # File doesn't need conversion - remove lock and skip
+            logging.info(f"⏭️  No conversion needed for {os.path.basename(input_file)}")
+            print(f"⏭️  Skipping {os.path.basename(input_file)} - already converted")
+            return
+        
+        # File needs conversion and we own the lock - proceed
+        logging.info(f"� Processing {os.path.basename(input_file)} - conversion needed")
+        
+        # Continue with normal conversion logic...
         # Determine if this is a video or audio file
         is_video = input_file.lower().endswith(VIDEO_EXTS)
         is_audio = input_file.lower().endswith(AUDIO_EXTS)

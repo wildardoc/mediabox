@@ -82,6 +82,14 @@ if not exist "%~dp0media_update.py" (
 copy /Y "%~dp0media_update.py" "%INSTALL_DIR%\" >nul
 echo [SUCCESS] media_update.py installed
 
+echo [INFO] Installing file locking support...
+if exist "%~dp0file_lock.py" (
+    copy /Y "%~dp0file_lock.py" "%INSTALL_DIR%\" >nul
+    echo [SUCCESS] file_lock.py installed ^(distributed processing support^)
+) else (
+    echo [WARNING] file_lock.py not found - distributed processing may not work
+)
+
 echo [INFO] Installing database support files...
 if exist "%~dp0media_database.py" (
     copy /Y "%~dp0media_database.py" "%INSTALL_DIR%\" >nul

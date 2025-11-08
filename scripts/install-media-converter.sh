@@ -255,6 +255,15 @@ cp "$SCRIPT_DIR/media_update.py" "$INSTALL_DIR/" || error_exit "Failed to copy m
 chmod +x "$INSTALL_DIR/media_update.py"
 log_success "media_update.py installed"
 
+# Copy file locking module for distributed processing
+log_info "Installing file locking support..."
+if [[ -f "$SCRIPT_DIR/file_lock.py" ]]; then
+    cp "$SCRIPT_DIR/file_lock.py" "$INSTALL_DIR/" || log_warning "Failed to copy file_lock.py"
+    log_success "file_lock.py installed (distributed processing support)"
+else
+    log_warning "file_lock.py not found - distributed processing may not work"
+fi
+
 # Copy media database files if they exist (optional but recommended for caching)
 log_info "Installing database support files..."
 if [[ -f "$SCRIPT_DIR/media_database.py" ]]; then
