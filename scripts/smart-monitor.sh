@@ -112,7 +112,7 @@ get_colored_system_stats() {
 # Check active processes
 get_active_processes() {
     local plex_count=$(pgrep -f "PlexTranscoder\|plex.*ffmpeg" | wc -l)
-    local import_count=$(pgrep -f "import\.sh\|media_update\.py" | wc -l)
+    local import_count=$(pgrep -f "import\.sh\|media_update\.py\|media-converter" | wc -l)
     local ffmpeg_count=$(pgrep -f ffmpeg | wc -l)
     
     echo "Active Processes:"
