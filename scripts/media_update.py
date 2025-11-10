@@ -2021,11 +2021,31 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                                 logging.info(f"Output filename updated for resolution downgrade: {os.path.basename(final_output_file)}")
                             break
             
+                # Check if video has proper color metadata (bt709 for SDR content)
+                needs_color_metadata_fix = False
+                for stream in probe['streams']:
+                    if stream['codec_type'] == 'video':
+                        color_primaries = stream.get('color_primaries', '')
+                        color_trc = stream.get('color_transfer', '')
+                        colorspace = stream.get('color_space', '')
+                        
+                        # Check if this is HDR content (which will be tone-mapped)
+                        is_hdr_content = (color_trc in ['smpte2084', 'arib-std-b67'] or 
+                                         (color_primaries == 'bt2020' and '10' in stream.get('pix_fmt', '')))
+                        
+                        # For SDR content, verify bt709 colorspace is set
+                        if not is_hdr_content:
+                            if (color_primaries != 'bt709' or color_trc != 'bt709' or colorspace != 'bt709'):
+                                needs_color_metadata_fix = True
+                                logging.info(f"Color metadata needs correction: primaries={color_primaries}, trc={color_trc}, space={colorspace}")
+                        break
+                
                 # Enhanced skip logic - only skip if format AND metadata are perfect AND not forcing stereo AND not downgrading resolution
                 if (vcodec == 'h264' and all_aac and input_file.lower().endswith(('.mp4', '.mkv')) and 
-                    not needs_stereo_track and not needs_51_from_71 and not needs_audio_metadata_fix and not has_non_english_audio and not force_stereo and not needs_resolution_downgrade):
-                    print(f"Skipping: {input_file} is already H.264/AAC with proper audio metadata and all tracks.")
-                    logging.info(f"Skipping: {input_file} is already H.264/AAC with proper audio metadata and all tracks.")
+                    not needs_stereo_track and not needs_51_from_71 and not needs_audio_metadata_fix and not has_non_english_audio and 
+                    not force_stereo and not needs_resolution_downgrade and not needs_color_metadata_fix):
+                    print(f"Skipping: {input_file} is already H.264/AAC with proper audio and color metadata.")
+                    logging.info(f"Skipping: {input_file} is already H.264/AAC with proper audio and color metadata.")
                     return
                 elif needs_resolution_downgrade:
                     print(f"Transcoding: {input_file} - downgrading resolution from high definition to 1080p.")
@@ -2045,6 +2065,9 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                 elif has_non_english_audio:
                     print(f"Transcoding: {input_file} has non-English audio tracks to remove.")
                     logging.info(f"Transcoding: {input_file} has non-English audio tracks to remove.")
+                elif needs_color_metadata_fix:
+                    print(f"Transcoding: {input_file} needs color metadata correction (BT.709 colorspace).")
+                    logging.info(f"Transcoding: {input_file} needs color metadata correction (BT.709 colorspace).")
         
             else:  # is_audio
                 # Audio file logic
