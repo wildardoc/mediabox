@@ -129,6 +129,13 @@ fi
 source /etc/os-release
 log_info "Detected OS: ${NAME} ${VERSION}"
 
+# Check if this is a reinstall
+if [[ -f "$INSTALL_DIR/mediabox_config.json" ]]; then
+    log_info "📦 Existing installation detected at: $INSTALL_DIR"
+    log_info "Your previous configuration will be preserved and used as defaults"
+    echo ""
+fi
+
 # Check Python version
 if ! command -v python3 &> /dev/null; then
     error_exit "Python 3 is required but not installed. Install with: sudo apt install python3" 1
@@ -290,6 +297,28 @@ if [[ -f "$SCRIPT_DIR/requirements.txt" ]]; then
     cp "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
 fi
 
+# Load existing configuration if available
+EXISTING_TV_DIR=""
+EXISTING_MOVIES_DIR=""
+EXISTING_MUSIC_DIR=""
+EXISTING_MISC_DIR=""
+
+if [[ -f "$INSTALL_DIR/mediabox_config.json" ]]; then
+    log_info "Found existing configuration, loading current settings..."
+    if command -v jq >/dev/null 2>&1; then
+        EXISTING_TV_DIR=$(jq -r '.library_dirs.tv // ""' "$INSTALL_DIR/mediabox_config.json")
+        EXISTING_MOVIES_DIR=$(jq -r '.library_dirs.movies // ""' "$INSTALL_DIR/mediabox_config.json")
+        EXISTING_MUSIC_DIR=$(jq -r '.library_dirs.music // ""' "$INSTALL_DIR/mediabox_config.json")
+        EXISTING_MISC_DIR=$(jq -r '.library_dirs.misc // ""' "$INSTALL_DIR/mediabox_config.json")
+    else
+        # Fallback: simple grep parsing if jq not available
+        EXISTING_TV_DIR=$(grep -A1 '"tv"' "$INSTALL_DIR/mediabox_config.json" | grep -o '": ".*"' | cut -d'"' -f3 || echo "")
+        EXISTING_MOVIES_DIR=$(grep -A1 '"movies"' "$INSTALL_DIR/mediabox_config.json" | grep -o '": ".*"' | cut -d'"' -f3 || echo "")
+        EXISTING_MUSIC_DIR=$(grep -A1 '"music"' "$INSTALL_DIR/mediabox_config.json" | grep -o '": ".*"' | cut -d'"' -f3 || echo "")
+        EXISTING_MISC_DIR=$(grep -A1 '"misc"' "$INSTALL_DIR/mediabox_config.json" | grep -o '": ".*"' | cut -d'"' -f3 || echo "")
+    fi
+fi
+
 # Prompt for library directories
 echo ""
 echo "─────────────────────────────────────────────────────────────"
@@ -297,13 +326,21 @@ log_info "Configure Media Library Directories"
 echo ""
 echo "Enter the paths to your media libraries on this system."
 echo "These are the directories where your media files are stored."
-echo "Press Enter to skip a directory if not applicable."
+echo "Press Enter to keep existing value or skip if not applicable."
 echo ""
 
-read -p "TV Shows directory [e.g., /mnt/media/tv]: " TV_DIR
-read -p "Movies directory [e.g., /mnt/media/movies]: " MOVIES_DIR
-read -p "Music directory [e.g., /mnt/media/music]: " MUSIC_DIR
-read -p "Miscellaneous directory (optional): " MISC_DIR
+# Prompt with existing values as defaults
+read -p "TV Shows directory [$EXISTING_TV_DIR]: " TV_DIR
+TV_DIR="${TV_DIR:-$EXISTING_TV_DIR}"
+
+read -p "Movies directory [$EXISTING_MOVIES_DIR]: " MOVIES_DIR
+MOVIES_DIR="${MOVIES_DIR:-$EXISTING_MOVIES_DIR}"
+
+read -p "Music directory [$EXISTING_MUSIC_DIR]: " MUSIC_DIR
+MUSIC_DIR="${MUSIC_DIR:-$EXISTING_MUSIC_DIR}"
+
+read -p "Miscellaneous directory [$EXISTING_MISC_DIR]: " MISC_DIR
+MISC_DIR="${MISC_DIR:-$EXISTING_MISC_DIR}"
 
 # Validate at least one directory is provided
 if [[ -z "$TV_DIR" && -z "$MOVIES_DIR" && -z "$MUSIC_DIR" ]]; then
