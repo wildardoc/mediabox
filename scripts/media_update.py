@@ -1631,31 +1631,37 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_r
     if hdr_info['is_hdr']:
         # Force software encoding for HDR tone mapping (zscale not supported in VAAPI)
         if video_filter:
-            video_args = ['-c:v', 'libx264', '-vf', video_filter, '-crf', '23', '-preset', 'medium']
+            video_args = ['-c:v', 'libx264', '-vf', video_filter, '-crf', '23', '-preset', 'medium',
+                         '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv']
         else:
-            video_args = ['-c:v', 'libx264', '-crf', '23', '-preset', 'medium']
-        logging.info(f"Using software encoding for HDR tone mapping")
+            video_args = ['-c:v', 'libx264', '-crf', '23', '-preset', 'medium',
+                         '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv']
+        logging.info(f"Using software encoding for HDR tone mapping with BT.709 color correction")
     elif hwaccel['method'] == 'vaapi':
         if needs_scaling:
             # VAAPI scaling - insert scale before hwupload
             vaapi_extra_args = ['-vaapi_device', '/dev/dri/renderD128', '-vf', f'{scale_filter},format=nv12,hwupload']
         else:
             vaapi_extra_args = hwaccel['extra_args']
-        video_args = ['-c:v', hwaccel['encoder']] + vaapi_extra_args + ['-qp', '23']
+        video_args = ['-c:v', hwaccel['encoder']] + vaapi_extra_args + ['-qp', '23',
+                     '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv']
         logging.info(f"Using VAAPI hardware acceleration{' with resolution scaling' if needs_scaling else ''}")
     elif hwaccel['method'] == 'software_optimized':
         if needs_scaling:
             software_extra_args = hwaccel['extra_args'] + ['-vf', scale_filter]
         else:
             software_extra_args = hwaccel['extra_args']
-        video_args = ['-c:v', hwaccel['encoder']] + software_extra_args + ['-crf', '23']
+        video_args = ['-c:v', hwaccel['encoder']] + software_extra_args + ['-crf', '23',
+                     '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv']
         logging.info(f"Using optimized software encoding{' with resolution scaling' if needs_scaling else ''}")
     else:
         # Basic fallback
         if needs_scaling:
-            video_args = ['-c:v', 'libx264', '-vf', scale_filter, '-crf', '23', '-preset', 'fast']
+            video_args = ['-c:v', 'libx264', '-vf', scale_filter, '-crf', '23', '-preset', 'fast',
+                         '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv']
         else:
-            video_args = ['-c:v', 'libx264', '-crf', '23', '-preset', 'fast']
+            video_args = ['-c:v', 'libx264', '-crf', '23', '-preset', 'fast',
+                         '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv']
         logging.info(f"Using basic software encoding{' with resolution scaling' if needs_scaling else ''}")
 
     # Check if we have any audio to process
