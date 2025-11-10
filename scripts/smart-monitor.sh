@@ -125,6 +125,38 @@ get_active_processes() {
     fi
 }
 
+# Get list of files currently being converted
+get_converting_files() {
+    echo ""
+    echo "Currently Converting:"
+    
+    # Find ffmpeg processes and extract input filenames
+    local found_files=false
+    while IFS= read -r pid; do
+        if [[ -n "$pid" ]]; then
+            # Get the command line for this ffmpeg process
+            local cmdline=$(ps -p "$pid" -o args= 2>/dev/null || echo "")
+            
+            # Extract filename after "-i " flag
+            if [[ "$cmdline" =~ -i[[:space:]]+(\"?)([^\"[:space:]]+) ]]; then
+                local filename="${BASH_REMATCH[2]}"
+                # Get just the basename
+                filename=$(basename "$filename")
+                # Truncate if too long
+                if [[ ${#filename} -gt 60 ]]; then
+                    filename="${filename:0:57}..."
+                fi
+                echo -e "  ${CYAN}▸${NC} $filename"
+                found_files=true
+            fi
+        fi
+    done < <(pgrep -f "ffmpeg.*-i" 2>/dev/null)
+    
+    if [[ "$found_files" == "false" ]]; then
+        echo -e "  ${GREEN}No active conversions${NC}"
+    fi
+}
+
 # Display conversion statistics
 show_conversion_stats() {
     if [[ ! -f "$STATS_FILE" ]]; then
@@ -220,6 +252,9 @@ monitor() {
         
         # Active processes
         get_active_processes
+        
+        # Currently converting files
+        get_converting_files
         echo
         
         # Conversion statistics
