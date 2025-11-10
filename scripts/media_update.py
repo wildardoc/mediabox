@@ -1246,6 +1246,14 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_r
     forced_subs = []
     subtitle_lang_metadata = []
 
+    # Build audio stream index mapping (absolute index -> audio-relative index)
+    audio_stream_map = {}
+    audio_counter = 0
+    for stream in probe['streams']:
+        if stream['codec_type'] == 'audio':
+            audio_stream_map[stream['index']] = audio_counter
+            audio_counter += 1
+
     # Find surround sound audio streams and subtitle streams
     subtitle_stream_counter = 0
     for stream in probe['streams']:
@@ -1418,7 +1426,9 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_r
                 filter_complex = ['-filter_complex']
             
             # Add channelmap filter to fix the unknown 6-channel layout to 5.1
-            channelmap_filter = f'[0:{surround_idx}]channelmap=0-FL|1-FR|2-FC|3-LFE|4-BL|5-BR:5.1[fixed_surround]'
+            # Use audio-relative index to handle files where audio streams come before video
+            audio_idx = audio_stream_map.get(surround_idx, surround_idx)
+            channelmap_filter = f'[0:a:{audio_idx}]channelmap=0-FL|1-FR|2-FC|3-LFE|4-BL|5-BR:5.1[fixed_surround]'
             
             if len(filter_complex) == 1:  # Only has '-filter_complex'
                 filter_complex.append(channelmap_filter)
@@ -1428,14 +1438,15 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_r
                 
             if map_original_surround:
                 audio_maps += ['-map', '[fixed_surround]']
-                logging.info(f"Mapping surround stream {surround_idx} with channelmap filter to fix unknown 6-channel layout to 5.1")
+                logging.info(f"Mapping surround stream {surround_idx} (audio stream {audio_idx}) with channelmap filter to fix unknown 6-channel layout to 5.1")
         else:
             if map_original_surround:
-                audio_maps += ['-map', f'0:{surround_idx}']
+                audio_idx = audio_stream_map.get(surround_idx, surround_idx)
+                audio_maps += ['-map', f'0:a:{audio_idx}']
                 if surround_has_processable_layout:
-                    logging.info(f"Mapping surround stream {surround_idx} with processable channel layout (will re-encode)")
+                    logging.info(f"Mapping surround stream {surround_idx} (audio stream {audio_idx}) with processable channel layout (will re-encode)")
                 else:
-                    logging.info(f"Mapping surround stream {surround_idx} with unknown channel layout (will stream copy to preserve quality)")
+                    logging.info(f"Mapping surround stream {surround_idx} (audio stream {audio_idx}) with unknown channel layout (will stream copy to preserve quality)")
             # Original surround stream is always preserved alongside any created tracks
         
         # Add metadata for original surround if we're mapping it
@@ -1453,14 +1464,15 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_r
             next_audio_idx = 0  # Start from 0 if we're not mapping original surround
         
         # Create 5.1 from 7.1 if needed (done first so stereo can use it)
-        surround_source_for_stereo = '[fixed_surround]' if needs_channelmap_fix else f'[0:{surround_idx}]'
+        audio_idx = audio_stream_map.get(surround_idx, surround_idx)
+        surround_source_for_stereo = '[fixed_surround]' if needs_channelmap_fix else f'[0:a:{audio_idx}]'
         
         if should_create_51_from_71:
             # Create 5.1 from 7.1 by mixing side channels into back channels
             # 7.1 layout: FL, FR, FC, LFE, BL, BR, SL, SR (0,1,2,3,4,5,6,7)
             # 5.1 layout: FL, FR, FC, LFE, BL, BR (0,1,2,3,4,5)
             # Mix: BL = BL + 0.7*SL, BR = BR + 0.7*SR (preserve original center channel balance)
-            source_for_51 = '[fixed_surround]' if needs_channelmap_fix else f'[0:{surround_idx}]'
+            source_for_51 = '[fixed_surround]' if needs_channelmap_fix else f'[0:a:{audio_idx}]'
             
             if should_create_stereo:
                 # Need to create both 5.1 and stereo - use asplit to duplicate the 5.1 signal
@@ -1513,27 +1525,31 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_r
     if surround_idx is not None and not should_create_stereo:
         # Map existing stereo tracks
         stereo_mapped = False
+        stereo_audio_idx = 0
         for stream in probe['streams']:
-            if stream['codec_type'] == 'audio' and int(stream.get('channels', 0)) == 2:
+            if stream['codec_type'] == 'audio':
                 idx = stream['index']
-                original_lang = stream.get('tags', {}).get('language', '').lower()
-                
-                # Only accept English, unlabeled, or undefined streams
-                if original_lang == 'eng' or not original_lang or original_lang == 'und':
-                    if original_lang == 'eng':
-                        logging.info(f"Mapping existing stereo stream {idx} (already English)")
-                    else:
-                        logging.info(f"Mapping existing stereo stream {idx} (tagging as English)")
+                if int(stream.get('channels', 0)) == 2:
+                    original_lang = stream.get('tags', {}).get('language', '').lower()
                     
-                    audio_maps += ['-map', f'0:{idx}']
+                    # Only accept English, unlabeled, or undefined streams
+                    if original_lang == 'eng' or not original_lang or original_lang == 'und':
+                        if original_lang == 'eng':
+                            logging.info(f"Mapping existing stereo stream {idx} (audio stream {stereo_audio_idx}, already English)")
+                        else:
+                            logging.info(f"Mapping existing stereo stream {idx} (audio stream {stereo_audio_idx}, tagging as English)")
+                        
+                        # Use audio-relative specifier
+                        audio_maps += ['-map', f'0:a:{stereo_audio_idx}']
                     # Calculate correct audio stream index based on what we've already mapped
                     current_audio_idx = 0 if not map_original_surround else 1  # Start after surround if mapped
                     if should_create_51_from_71:
                         current_audio_idx += 1  # Account for 5.1 track
                     
-                    audio_labels += [f'-metadata:s:a:{current_audio_idx}', f'title={STANDARD_STEREO_TITLE}', f'-metadata:s:a:{current_audio_idx}', 'language=eng']
-                    stereo_mapped = True
-                    break
+                        audio_labels += [f'-metadata:s:a:{current_audio_idx}', f'title={STANDARD_STEREO_TITLE}', f'-metadata:s:a:{current_audio_idx}', 'language=eng']
+                        stereo_mapped = True
+                        break
+                stereo_audio_idx += 1
         
         if not stereo_mapped:
             logging.warning("Have surround but no processable stereo track found")
@@ -1541,6 +1557,7 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_r
     elif surround_idx is None:
         # Fallback: find first English or unlabeled audio stream
         fallback_found = False
+        audio_counter = 0
         for stream in probe['streams']:
             if stream['codec_type'] == 'audio':
                 idx = stream['index']
@@ -1549,16 +1566,18 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_r
                 # Only accept English, unlabeled, or undefined streams
                 if original_lang == 'eng' or not original_lang or original_lang == 'und':
                     if original_lang == 'eng':
-                        logging.info(f"Fallback: Using English audio stream {idx}")
+                        logging.info(f"Fallback: Using English audio stream {idx} (audio stream {audio_counter})")
                     else:
-                        logging.info(f"Fallback: Using unlabeled audio stream {idx} (tagging as English)")
+                        logging.info(f"Fallback: Using unlabeled audio stream {idx} (audio stream {audio_counter}, tagging as English)")
                     
-                    audio_maps += ['-map', f'0:{idx}']
+                    # Use audio-relative specifier to avoid mapping wrong streams in files with unusual stream order
+                    audio_maps += ['-map', f'0:a:{audio_counter}']
                     audio_labels += ['-metadata:s:a:0', f'title={STANDARD_STEREO_TITLE}', '-metadata:s:a:0', 'language=eng']
                     fallback_found = True
                     break
                 else:
                     logging.debug(f"Skipping non-English audio stream {idx} (language: {original_lang})")
+                audio_counter += 1
         
         if not fallback_found:
             logging.warning("No English or unlabeled audio streams found - no audio will be processed")
