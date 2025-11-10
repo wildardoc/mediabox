@@ -521,7 +521,47 @@ cleanup_completed_jobs() {
         local job_file="${ACTIVE_JOB_FILES[$i]}"
         
         if kill -0 "$pid" 2>/dev/null; then
-            # Job still running
+            # Job process still exists, but verify it's actually doing work
+            # Check if it has spawned an ffmpeg subprocess or is actively running
+            local has_ffmpeg_child=false
+            local job_start_file="/tmp/job_start_$(basename "$job_file" | tr ' ' '_').time"
+            local current_time=$(date +%s)
+            
+            # Check if this job has spawned ffmpeg
+            if pgrep -P "$pid" -x ffmpeg >/dev/null 2>&1; then
+                has_ffmpeg_child=true
+            fi
+            
+            # If job exists but hasn't spawned ffmpeg, check how long it's been running
+            if [[ "$has_ffmpeg_child" == "false" ]]; then
+                local job_start_time=0
+                if [[ -f "$job_start_file" ]]; then
+                    job_start_time=$(cat "$job_start_file" 2>/dev/null || echo "$current_time")
+                fi
+                local job_runtime=$((current_time - job_start_time))
+                
+                # If job has been running for more than 2 minutes without spawning ffmpeg,
+                # it's likely stuck in initialization or crashed silently
+                if [[ $job_runtime -gt 120 ]]; then
+                    log "WARN" "Job PID $pid has been running for ${job_runtime}s without spawning ffmpeg - likely stuck or crashed. Terminating and requeuing."
+                    
+                    # Mark as killed for requeue
+                    local job_status_file="/tmp/job_status_$(basename "$job_file" | tr ' ' '_').status"
+                    echo "KILLED" > "$job_status_file"
+                    
+                    # Kill the stuck process
+                    pkill -TERM -P "$pid" 2>/dev/null || true
+                    kill -TERM "$pid" 2>/dev/null || true
+                    sleep 1
+                    pkill -KILL -P "$pid" 2>/dev/null || true
+                    kill -KILL "$pid" 2>/dev/null || true
+                    
+                    # Will be cleaned up in next iteration
+                    continue
+                fi
+            fi
+            
+            # Job still running and either has ffmpeg or is within startup window
             new_pids+=("$pid")
             new_job_files+=("$job_file")
         else

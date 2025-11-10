@@ -116,9 +116,27 @@ get_active_processes() {
     # Count ffmpeg processes by exact name to avoid matching pgrep itself
     local ffmpeg_count=$(pgrep -x ffmpeg 2>/dev/null | wc -l)
     
+    # Count conversion wrapper processes that have actually spawned ffmpeg
+    local active_transcoding_count=0
+    while IFS= read -r wrapper_pid; do
+        if [[ -n "$wrapper_pid" ]]; then
+            # Check if this wrapper has spawned ffmpeg
+            if pgrep -P "$wrapper_pid" -x ffmpeg >/dev/null 2>&1; then
+                ((active_transcoding_count++))
+            fi
+        fi
+    done < <(pgrep -f "media_update\.py\|media-converter" 2>/dev/null)
+    
     echo "Active Processes:"
     [[ $plex_count -gt 0 ]] && echo -e "  ${PURPLE}Plex Transcoding: $plex_count${NC}"
-    [[ $import_count -gt 0 ]] && echo -e "  ${YELLOW}Import/Conversion Jobs: $import_count${NC}"
+    if [[ $import_count -gt 0 ]]; then
+        # Show both wrapper count and actual transcoding count
+        if [[ $active_transcoding_count -gt 0 && $active_transcoding_count -ne $import_count ]]; then
+            echo -e "  ${YELLOW}Conversion Jobs: $import_count total (${active_transcoding_count} actively transcoding)${NC}"
+        else
+            echo -e "  ${YELLOW}Conversion Jobs: $import_count${NC}"
+        fi
+    fi
     [[ $ffmpeg_count -gt 0 ]] && echo -e "  ${BLUE}FFmpeg Total: $ffmpeg_count${NC}"
     
     if [[ $plex_count -eq 0 && $import_count -eq 0 && $ffmpeg_count -eq 0 ]]; then
@@ -201,7 +219,15 @@ show_conversion_stats() {
     echo -e "Runtime: ${GREEN}$elapsed_formatted${NC}"
     echo -e "Processed: ${GREEN}$total_processed${NC} files"
     [[ $total_errors -gt 0 ]] && echo -e "Errors: ${RED}$total_errors${NC} files"
-    echo -e "Active Jobs: ${BLUE}$current_jobs${NC}"
+    
+    # Show active jobs with verification
+    local actual_transcoding=$(pgrep -x ffmpeg 2>/dev/null | wc -l)
+    if [[ $current_jobs -gt 0 && $actual_transcoding -ne $current_jobs ]]; then
+        echo -e "Active Jobs: ${BLUE}$current_jobs${NC} tracked (${actual_transcoding} actively transcoding)"
+    else
+        echo -e "Active Jobs: ${BLUE}$current_jobs${NC}"
+    fi
+    
     echo -e "Queue Status: ${YELLOW}$queue_remaining${NC} files remaining out of ${queue_total} total (${total_processed} processed)"
     echo -e "Processing Rate: ${PURPLE}$processing_rate${NC} files/hour"
     echo -e "Estimated Completion: ${CYAN}$eta_formatted${NC}"
