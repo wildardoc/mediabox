@@ -111,13 +111,14 @@ get_colored_system_stats() {
 
 # Check active processes
 get_active_processes() {
-    local plex_count=$(pgrep -f "PlexTranscoder\|plex.*ffmpeg" | wc -l)
-    local import_count=$(pgrep -f "import\.sh\|media_update\.py\|media-converter" | wc -l)
-    local ffmpeg_count=$(pgrep -f ffmpeg | wc -l)
+    local plex_count=$(pgrep -f "PlexTranscoder\|plex.*ffmpeg" 2>/dev/null | wc -l)
+    local import_count=$(pgrep -f "import\.sh\|media_update\.py\|media-converter" 2>/dev/null | wc -l)
+    # Count ffmpeg processes by exact name to avoid matching pgrep itself
+    local ffmpeg_count=$(pgrep -x ffmpeg 2>/dev/null | wc -l)
     
     echo "Active Processes:"
     [[ $plex_count -gt 0 ]] && echo -e "  ${PURPLE}Plex Transcoding: $plex_count${NC}"
-    [[ $import_count -gt 0 ]] && echo -e "  ${YELLOW}Import/Download: $import_count${NC}"
+    [[ $import_count -gt 0 ]] && echo -e "  ${YELLOW}Import/Conversion Jobs: $import_count${NC}"
     [[ $ffmpeg_count -gt 0 ]] && echo -e "  ${BLUE}FFmpeg Total: $ffmpeg_count${NC}"
     
     if [[ $plex_count -eq 0 && $import_count -eq 0 && $ffmpeg_count -eq 0 ]]; then
@@ -134,12 +135,18 @@ get_converting_files() {
     local found_files=false
     while IFS= read -r pid; do
         if [[ -n "$pid" ]]; then
-            # Get the command line for this ffmpeg process
-            local cmdline=$(ps -p "$pid" -o args= 2>/dev/null || echo "")
+            # Get the full command line for this ffmpeg process
+            local cmdline=$(cat "/proc/$pid/cmdline" 2>/dev/null | tr '\0' ' ' || echo "")
             
-            # Extract filename after "-i " flag
-            if [[ "$cmdline" =~ -i[[:space:]]+(\"?)([^\"[:space:]]+) ]]; then
-                local filename="${BASH_REMATCH[2]}"
+            # Extract filename after "-i " - handle paths with spaces
+            # Look for pattern: -i <path> where path continues until next flag or output file
+            if [[ "$cmdline" =~ -i[[:space:]]+([^[:space:]]+.*)?[[:space:]]+-[a-z] ]]; then
+                # Extract everything between -i and the next flag
+                local input_section="${BASH_REMATCH[1]}"
+                # Remove trailing flags and arguments
+                local filename=$(echo "$input_section" | sed 's/ -[a-z].*//')
+                # Remove quotes if present
+                filename="${filename//\"/}"
                 # Get just the basename
                 filename=$(basename "$filename")
                 # Truncate if too long
@@ -150,7 +157,7 @@ get_converting_files() {
                 found_files=true
             fi
         fi
-    done < <(pgrep -f "ffmpeg.*-i" 2>/dev/null)
+    done < <(pgrep ffmpeg 2>/dev/null)
     
     if [[ "$found_files" == "false" ]]; then
         echo -e "  ${GREEN}No active conversions${NC}"
