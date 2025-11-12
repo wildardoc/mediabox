@@ -24,10 +24,20 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
     exit 1
 fi
 
+# Load existing Plex configuration if available
+EXISTING_PLEX_URL=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('plex_integration', {}).get('url', ''))" 2>/dev/null || echo "")
+EXISTING_PLEX_TOKEN=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('plex_integration', {}).get('token', ''))" 2>/dev/null || echo "")
+
 # Get Plex URL
 echo -e "${YELLOW}Enter Plex Server URL${NC}"
 echo "Examples: http://media.lan:32400 or http://192.168.1.100:32400"
-read -p "Plex URL: " PLEX_URL
+if [[ -n "$EXISTING_PLEX_URL" ]]; then
+    echo -e "Current: ${GREEN}$EXISTING_PLEX_URL${NC}"
+    read -p "Plex URL [press Enter to keep current]: " PLEX_URL
+    PLEX_URL="${PLEX_URL:-$EXISTING_PLEX_URL}"
+else
+    read -p "Plex URL: " PLEX_URL
+fi
 
 # Validate URL format
 if [[ ! "$PLEX_URL" =~ ^https?:// ]]; then
@@ -37,12 +47,27 @@ fi
 
 # Get Plex Token
 echo -e "\n${YELLOW}Plex Authentication${NC}"
-echo "Choose authentication method:"
-echo "  1. Enter Plex username/password (recommended - auto-retrieve token)"
-echo "  2. Enter existing Plex token manually"
-read -p "Choice [1/2]: " AUTH_CHOICE
+if [[ -n "$EXISTING_PLEX_TOKEN" ]]; then
+    echo -e "Existing token found: ${GREEN}${EXISTING_PLEX_TOKEN:0:10}...${NC}"
+    read -p "Use existing token? [Y/n]: " USE_EXISTING_TOKEN
+    if [[ ! "$USE_EXISTING_TOKEN" =~ ^[Nn]$ ]]; then
+        PLEX_TOKEN="$EXISTING_PLEX_TOKEN"
+        echo -e "${GREEN}✓ Using existing token${NC}"
+    fi
+fi
 
-PLEX_TOKEN=""
+if [[ -z "$PLEX_TOKEN" ]]; then
+    echo "Choose authentication method:"
+    echo "  1. Enter Plex username/password (recommended - auto-retrieve token)"
+    echo "  2. Enter existing Plex token manually"
+    read -p "Choice [1/2]: " AUTH_CHOICE
+else
+    AUTH_CHOICE=""
+fi
+
+if [[ -z "$PLEX_TOKEN" ]]; then
+    PLEX_TOKEN=""
+fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ "$AUTH_CHOICE" == "1" ]]; then
@@ -99,31 +124,48 @@ if [[ -z "$TV_PATH" ]]; then
     exit 1
 fi
 
+# Load existing path mappings
+EXISTING_PLEX_TV=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('plex_integration', {}).get('path_mappings', {}).get('tv', ''))" 2>/dev/null || echo "")
+EXISTING_PLEX_MOVIES=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('plex_integration', {}).get('path_mappings', {}).get('movies', ''))" 2>/dev/null || echo "")
+EXISTING_PLEX_MUSIC=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('plex_integration', {}).get('path_mappings', {}).get('music', ''))" 2>/dev/null || echo "")
+
 echo -e "Your converter sees TV at: ${GREEN}$TV_PATH${NC}"
 echo "How does Plex see this path?"
 echo "Examples: /data/tv, /mnt/media/tv, /Storage/media/tv"
 echo "Common: If Plex is on different server, often /data/tv or /Storage/media/tv"
-read -p "Plex TV path: " PLEX_TV_PATH
-
-if [[ -z "$PLEX_TV_PATH" && -n "$TV_PATH" ]]; then
-    echo -e "${YELLOW}Using same path as converter: $TV_PATH${NC}"
-    PLEX_TV_PATH="$TV_PATH"
+if [[ -n "$EXISTING_PLEX_TV" ]]; then
+    echo -e "Current: ${GREEN}$EXISTING_PLEX_TV${NC}"
+    read -p "Plex TV path [press Enter to keep current]: " PLEX_TV_PATH
+    PLEX_TV_PATH="${PLEX_TV_PATH:-$EXISTING_PLEX_TV}"
+elif [[ -n "$TV_PATH" ]]; then
+    read -p "Plex TV path [press Enter to use $TV_PATH]: " PLEX_TV_PATH
+    PLEX_TV_PATH="${PLEX_TV_PATH:-$TV_PATH}"
+else
+    read -p "Plex TV path: " PLEX_TV_PATH
 fi
 
 echo -e "\nYour converter sees Movies at: ${GREEN}$MOVIES_PATH${NC}"
-read -p "Plex Movies path: " PLEX_MOVIES_PATH
-
-if [[ -z "$PLEX_MOVIES_PATH" && -n "$MOVIES_PATH" ]]; then
-    echo -e "${YELLOW}Using same path as converter: $MOVIES_PATH${NC}"
-    PLEX_MOVIES_PATH="$MOVIES_PATH"
+if [[ -n "$EXISTING_PLEX_MOVIES" ]]; then
+    echo -e "Current: ${GREEN}$EXISTING_PLEX_MOVIES${NC}"
+    read -p "Plex Movies path [press Enter to keep current]: " PLEX_MOVIES_PATH
+    PLEX_MOVIES_PATH="${PLEX_MOVIES_PATH:-$EXISTING_PLEX_MOVIES}"
+elif [[ -n "$MOVIES_PATH" ]]; then
+    read -p "Plex Movies path [press Enter to use $MOVIES_PATH]: " PLEX_MOVIES_PATH
+    PLEX_MOVIES_PATH="${PLEX_MOVIES_PATH:-$MOVIES_PATH}"
+else
+    read -p "Plex Movies path: " PLEX_MOVIES_PATH
 fi
 
 echo -e "\nYour converter sees Music at: ${GREEN}$MUSIC_PATH${NC}"
-read -p "Plex Music path: " PLEX_MUSIC_PATH
-
-if [[ -z "$PLEX_MUSIC_PATH" && -n "$MUSIC_PATH" ]]; then
-    echo -e "${YELLOW}Using same path as converter: $MUSIC_PATH${NC}"
-    PLEX_MUSIC_PATH="$MUSIC_PATH"
+if [[ -n "$EXISTING_PLEX_MUSIC" ]]; then
+    echo -e "Current: ${GREEN}$EXISTING_PLEX_MUSIC${NC}"
+    read -p "Plex Music path [press Enter to keep current]: " PLEX_MUSIC_PATH
+    PLEX_MUSIC_PATH="${PLEX_MUSIC_PATH:-$EXISTING_PLEX_MUSIC}"
+elif [[ -n "$MUSIC_PATH" ]]; then
+    read -p "Plex Music path [press Enter to use $MUSIC_PATH]: " PLEX_MUSIC_PATH
+    PLEX_MUSIC_PATH="${PLEX_MUSIC_PATH:-$MUSIC_PATH}"
+else
+    read -p "Plex Music path: " PLEX_MUSIC_PATH
 fi
 
 # Update config file
