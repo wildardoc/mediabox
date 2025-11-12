@@ -335,7 +335,7 @@ for sig in (signal.SIGINT, signal.SIGTERM):
     signal.signal(sig, lambda signum, frame: (cleanup_unfinished_file(), exit(1)))
 
 # Define supported video and audio file extensions as module-level constants
-VIDEO_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.m2ts')
+VIDEO_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.ts', '.m2ts')
 AUDIO_EXTS = ('.flac', '.wav', '.aiff', '.ape', '.wv', '.m4a', '.ogg', '.opus', '.wma')
 
 # AAC Quality Settings
