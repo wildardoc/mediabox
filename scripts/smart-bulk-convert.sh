@@ -472,29 +472,27 @@ start_conversion_job() {
     local job_start_file="/tmp/job_start_$(basename "$input_file" | tr ' ' '_').time"
     echo "$(date +%s)" > "$job_start_file"
     
-    # Start conversion in background
+    # Start conversion in background using an argv-safe exec (avoid eval and external wrappers)
     (
         cd "$SCRIPT_DIR"
-        # Auto-detect which command to use
-        local base_cmd
-        if command -v media-converter >/dev/null 2>&1; then
-            # Use media-converter wrapper (Mercury/remote installations)
-            base_cmd="media-converter"
-        else
-            # Use python3 directly (main server with local files)
-            base_cmd="python3 media_update.py"
-        fi
-        
-        # Build command with optional flags
-        local cmd="$base_cmd --file \"$input_file\" --type video"
+
+        # Prefer calling the local media_update.py directly to avoid ambiguity with a globally-installed
+        # "media-converter" wrapper which may change cwd or interpret args differently.
+        local python_exec
+        python_exec=$(command -v python3 >/dev/null 2>&1 && command -v python3 || echo python3)
+        local script_path="$SCRIPT_DIR/media_update.py"
+
+        # Build argument array to avoid shell quoting issues
+        local cmd_args=("$python_exec" "$script_path" "--file" "$input_file" "--type" "video")
         if [[ "$FORCE_STEREO" == "true" ]]; then
-            cmd="$cmd --force-stereo"
+            cmd_args+=("--force-stereo")
         fi
         if [[ "$DOWNGRADE_RESOLUTION" == "true" ]]; then
-            cmd="$cmd --downgrade-resolution"
+            cmd_args+=("--downgrade-resolution")
         fi
-        
-        if eval "$cmd"; then
+
+        # Execute the command directly (no eval) so arguments are preserved exactly
+        if "${cmd_args[@]}"; then
             echo "SUCCESS:$input_file" >> "${LOG_FILE}.results"
         else
             echo "ERROR:$input_file" >> "${LOG_FILE}.results"
