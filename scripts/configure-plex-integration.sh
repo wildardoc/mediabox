@@ -27,6 +27,61 @@ fi
 # Load existing Plex configuration if available
 EXISTING_PLEX_URL=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('plex_integration', {}).get('url', ''))" 2>/dev/null || echo "")
 EXISTING_PLEX_TOKEN=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('plex_integration', {}).get('token', ''))" 2>/dev/null || echo "")
+EXISTING_PLEX_TV=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('plex_integration', {}).get('path_mappings', {}).get('tv', ''))" 2>/dev/null || echo "")
+EXISTING_PLEX_MOVIES=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('plex_integration', {}).get('path_mappings', {}).get('movies', ''))" 2>/dev/null || echo "")
+EXISTING_PLEX_MUSIC=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('plex_integration', {}).get('path_mappings', {}).get('music', ''))" 2>/dev/null || echo "")
+
+# Display existing configuration if any
+if [[ -n "$EXISTING_PLEX_URL" || -n "$EXISTING_PLEX_TOKEN" ]]; then
+    echo -e "${YELLOW}Current Plex Configuration:${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    if [[ -n "$EXISTING_PLEX_URL" ]]; then
+        echo -e "  Plex URL:       ${GREEN}$EXISTING_PLEX_URL${NC}"
+    else
+        echo -e "  Plex URL:       ${RED}Not configured${NC}"
+    fi
+    
+    if [[ -n "$EXISTING_PLEX_TOKEN" ]]; then
+        echo -e "  Plex Token:     ${GREEN}${EXISTING_PLEX_TOKEN:0:10}...${NC} (configured)"
+    else
+        echo -e "  Plex Token:     ${RED}Not configured${NC}"
+    fi
+    
+    echo ""
+    echo -e "  ${YELLOW}Path Mappings:${NC}"
+    if [[ -n "$EXISTING_PLEX_TV" ]]; then
+        echo -e "    TV:           ${GREEN}$EXISTING_PLEX_TV${NC}"
+    else
+        echo -e "    TV:           ${RED}Not configured${NC}"
+    fi
+    
+    if [[ -n "$EXISTING_PLEX_MOVIES" ]]; then
+        echo -e "    Movies:       ${GREEN}$EXISTING_PLEX_MOVIES${NC}"
+    else
+        echo -e "    Movies:       ${RED}Not configured${NC}"
+    fi
+    
+    if [[ -n "$EXISTING_PLEX_MUSIC" ]]; then
+        echo -e "    Music:        ${GREEN}$EXISTING_PLEX_MUSIC${NC}"
+    else
+        echo -e "    Music:        ${RED}Not configured${NC}"
+    fi
+    
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    
+    read -p "Update this configuration? [Y/n]: " UPDATE_CONFIG
+    if [[ "$UPDATE_CONFIG" =~ ^[Nn]$ ]]; then
+        echo -e "${GREEN}Configuration unchanged. Exiting.${NC}"
+        exit 0
+    fi
+    echo ""
+else
+    echo -e "${YELLOW}No existing Plex configuration found.${NC}"
+    echo "This wizard will guide you through setting up Plex integration."
+    echo ""
+fi
 
 # Get Plex URL
 echo -e "${YELLOW}Enter Plex Server URL${NC}"
@@ -123,11 +178,6 @@ if [[ -z "$TV_PATH" ]]; then
     echo -e "${RED}Error: No library paths configured. Please configure library directories first.${NC}"
     exit 1
 fi
-
-# Load existing path mappings
-EXISTING_PLEX_TV=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('plex_integration', {}).get('path_mappings', {}).get('tv', ''))" 2>/dev/null || echo "")
-EXISTING_PLEX_MOVIES=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('plex_integration', {}).get('path_mappings', {}).get('movies', ''))" 2>/dev/null || echo "")
-EXISTING_PLEX_MUSIC=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('plex_integration', {}).get('path_mappings', {}).get('music', ''))" 2>/dev/null || echo "")
 
 echo -e "Your converter sees TV at: ${GREEN}$TV_PATH${NC}"
 echo "How does Plex see this path?"
