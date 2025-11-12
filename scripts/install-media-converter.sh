@@ -302,6 +302,7 @@ EXISTING_TV_DIR=""
 EXISTING_MOVIES_DIR=""
 EXISTING_MUSIC_DIR=""
 EXISTING_MISC_DIR=""
+EXISTING_VENV=""
 
 if [[ -f "$INSTALL_DIR/mediabox_config.json" ]]; then
     log_info "Found existing configuration, loading current settings..."
@@ -310,12 +311,65 @@ if [[ -f "$INSTALL_DIR/mediabox_config.json" ]]; then
         EXISTING_MOVIES_DIR=$(jq -r '.library_dirs.movies // ""' "$INSTALL_DIR/mediabox_config.json")
         EXISTING_MUSIC_DIR=$(jq -r '.library_dirs.music // ""' "$INSTALL_DIR/mediabox_config.json")
         EXISTING_MISC_DIR=$(jq -r '.library_dirs.misc // ""' "$INSTALL_DIR/mediabox_config.json")
+        EXISTING_VENV=$(jq -r '.venv_path // ""' "$INSTALL_DIR/mediabox_config.json")
     else
         # Fallback: simple grep parsing if jq not available
         EXISTING_TV_DIR=$(grep -A1 '"tv"' "$INSTALL_DIR/mediabox_config.json" | grep -o '": ".*"' | cut -d'"' -f3 || echo "")
         EXISTING_MOVIES_DIR=$(grep -A1 '"movies"' "$INSTALL_DIR/mediabox_config.json" | grep -o '": ".*"' | cut -d'"' -f3 || echo "")
         EXISTING_MUSIC_DIR=$(grep -A1 '"music"' "$INSTALL_DIR/mediabox_config.json" | grep -o '": ".*"' | cut -d'"' -f3 || echo "")
         EXISTING_MISC_DIR=$(grep -A1 '"misc"' "$INSTALL_DIR/mediabox_config.json" | grep -o '": ".*"' | cut -d'"' -f3 || echo "")
+        EXISTING_VENV=$(grep -A1 '"venv_path"' "$INSTALL_DIR/mediabox_config.json" | grep -o '": ".*"' | cut -d'"' -f3 || echo "")
+    fi
+    
+    # Display existing configuration
+    echo ""
+    echo "─────────────────────────────────────────────────────────────"
+    log_info "Current Media Converter Configuration"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo ""
+    if [[ -n "$EXISTING_VENV" ]]; then
+        echo -e "  Python venv:    ${GREEN}$EXISTING_VENV${NC}"
+    else
+        echo -e "  Python venv:    ${RED}Not configured${NC}"
+    fi
+    echo ""
+    echo -e "  ${YELLOW}Media Library Directories:${NC}"
+    if [[ -n "$EXISTING_TV_DIR" ]]; then
+        echo -e "    TV Shows:     ${GREEN}$EXISTING_TV_DIR${NC}"
+    else
+        echo -e "    TV Shows:     ${RED}Not configured${NC}"
+    fi
+    
+    if [[ -n "$EXISTING_MOVIES_DIR" ]]; then
+        echo -e "    Movies:       ${GREEN}$EXISTING_MOVIES_DIR${NC}"
+    else
+        echo -e "    Movies:       ${RED}Not configured${NC}"
+    fi
+    
+    if [[ -n "$EXISTING_MUSIC_DIR" ]]; then
+        echo -e "    Music:        ${GREEN}$EXISTING_MUSIC_DIR${NC}"
+    else
+        echo -e "    Music:        ${RED}Not configured${NC}"
+    fi
+    
+    if [[ -n "$EXISTING_MISC_DIR" ]]; then
+        echo -e "    Misc:         ${GREEN}$EXISTING_MISC_DIR${NC}"
+    else
+        echo -e "    Misc:         ${RED}Not configured${NC}"
+    fi
+    
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════"
+    echo ""
+    
+    read -p "Update this configuration? [Y/n]: " UPDATE_CONFIG
+    if [[ "$UPDATE_CONFIG" =~ ^[Nn]$ ]]; then
+        log_success "Configuration unchanged."
+        echo ""
+        log_info "You can reconfigure later by running:"
+        echo "  $SCRIPT_DIR/install-media-converter.sh"
+        echo ""
+        exit 0
     fi
 fi
 
