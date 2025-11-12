@@ -303,6 +303,11 @@ EXISTING_MOVIES_DIR=""
 EXISTING_MUSIC_DIR=""
 EXISTING_MISC_DIR=""
 EXISTING_VENV=""
+EXISTING_PLEX_URL=""
+EXISTING_PLEX_TOKEN=""
+EXISTING_PLEX_TV=""
+EXISTING_PLEX_MOVIES=""
+EXISTING_PLEX_MUSIC=""
 
 if [[ -f "$INSTALL_DIR/mediabox_config.json" ]]; then
     log_info "Found existing configuration, loading current settings..."
@@ -312,6 +317,11 @@ if [[ -f "$INSTALL_DIR/mediabox_config.json" ]]; then
         EXISTING_MUSIC_DIR=$(jq -r '.library_dirs.music // ""' "$INSTALL_DIR/mediabox_config.json")
         EXISTING_MISC_DIR=$(jq -r '.library_dirs.misc // ""' "$INSTALL_DIR/mediabox_config.json")
         EXISTING_VENV=$(jq -r '.venv_path // ""' "$INSTALL_DIR/mediabox_config.json")
+        EXISTING_PLEX_URL=$(jq -r '.plex_integration.url // ""' "$INSTALL_DIR/mediabox_config.json")
+        EXISTING_PLEX_TOKEN=$(jq -r '.plex_integration.token // ""' "$INSTALL_DIR/mediabox_config.json")
+        EXISTING_PLEX_TV=$(jq -r '.plex_integration.path_mappings.tv // ""' "$INSTALL_DIR/mediabox_config.json")
+        EXISTING_PLEX_MOVIES=$(jq -r '.plex_integration.path_mappings.movies // ""' "$INSTALL_DIR/mediabox_config.json")
+        EXISTING_PLEX_MUSIC=$(jq -r '.plex_integration.path_mappings.music // ""' "$INSTALL_DIR/mediabox_config.json")
     else
         # Fallback: simple grep parsing if jq not available
         EXISTING_TV_DIR=$(grep -A1 '"tv"' "$INSTALL_DIR/mediabox_config.json" | grep -o '": ".*"' | cut -d'"' -f3 || echo "")
@@ -319,6 +329,8 @@ if [[ -f "$INSTALL_DIR/mediabox_config.json" ]]; then
         EXISTING_MUSIC_DIR=$(grep -A1 '"music"' "$INSTALL_DIR/mediabox_config.json" | grep -o '": ".*"' | cut -d'"' -f3 || echo "")
         EXISTING_MISC_DIR=$(grep -A1 '"misc"' "$INSTALL_DIR/mediabox_config.json" | grep -o '": ".*"' | cut -d'"' -f3 || echo "")
         EXISTING_VENV=$(grep -A1 '"venv_path"' "$INSTALL_DIR/mediabox_config.json" | grep -o '": ".*"' | cut -d'"' -f3 || echo "")
+        EXISTING_PLEX_URL=$(grep -A1 '"url"' "$INSTALL_DIR/mediabox_config.json" | grep -o '": ".*"' | cut -d'"' -f3 || echo "")
+        EXISTING_PLEX_TOKEN=$(grep -A1 '"token"' "$INSTALL_DIR/mediabox_config.json" | grep -o '": ".*"' | cut -d'"' -f3 || echo "")
     fi
     
     # Display existing configuration
@@ -359,42 +371,90 @@ if [[ -f "$INSTALL_DIR/mediabox_config.json" ]]; then
     fi
     
     echo ""
+    echo -e "  ${YELLOW}Plex Integration:${NC}"
+    if [[ -n "$EXISTING_PLEX_URL" ]]; then
+        echo -e "    URL:          ${GREEN}$EXISTING_PLEX_URL${NC}"
+    else
+        echo -e "    URL:          ${RED}Not configured${NC}"
+    fi
+    
+    if [[ -n "$EXISTING_PLEX_TOKEN" ]]; then
+        echo -e "    Token:        ${GREEN}${EXISTING_PLEX_TOKEN:0:10}...${NC}"
+    else
+        echo -e "    Token:        ${RED}Not configured${NC}"
+    fi
+    
+    if [[ -n "$EXISTING_PLEX_TV" ]]; then
+        echo -e "    TV Path:      ${GREEN}$EXISTING_PLEX_TV${NC}"
+    else
+        echo -e "    TV Path:      ${RED}Not configured${NC}"
+    fi
+    
+    if [[ -n "$EXISTING_PLEX_MOVIES" ]]; then
+        echo -e "    Movies Path:  ${GREEN}$EXISTING_PLEX_MOVIES${NC}"
+    else
+        echo -e "    Movies Path:  ${RED}Not configured${NC}"
+    fi
+    
+    if [[ -n "$EXISTING_PLEX_MUSIC" ]]; then
+        echo -e "    Music Path:   ${GREEN}$EXISTING_PLEX_MUSIC${NC}"
+    else
+        echo -e "    Music Path:   ${RED}Not configured${NC}"
+    fi
+    
+    echo ""
     echo "═══════════════════════════════════════════════════════════════"
     echo ""
     
-    read -p "Update this configuration? [Y/n]: " UPDATE_CONFIG
-    if [[ "$UPDATE_CONFIG" =~ ^[Nn]$ ]]; then
+    read -p "Update library directories? [y/N]: " UPDATE_LIBRARIES
+    read -p "Update Plex integration? [y/N]: " UPDATE_PLEX_CONFIG
+    
+    if [[ ! "$UPDATE_LIBRARIES" =~ ^[Yy]$ ]] && [[ ! "$UPDATE_PLEX_CONFIG" =~ ^[Yy]$ ]]; then
         log_success "Configuration unchanged."
         echo ""
-        log_info "You can reconfigure later by running:"
+        log_info "Installation complete. You can reconfigure later by running:"
         echo "  $SCRIPT_DIR/install-media-converter.sh"
         echo ""
         exit 0
     fi
+    echo ""
+else
+    # No existing config - default to prompting for everything
+    UPDATE_LIBRARIES="y"
+    UPDATE_PLEX_CONFIG=""
 fi
 
-# Prompt for library directories
-echo ""
-echo "─────────────────────────────────────────────────────────────"
-log_info "Configure Media Library Directories"
-echo ""
-echo "Enter the paths to your media libraries on this system."
-echo "These are the directories where your media files are stored."
-echo "Press Enter to keep existing value or skip if not applicable."
-echo ""
+# Prompt for library directories if requested
+if [[ "$UPDATE_LIBRARIES" =~ ^[Yy]$ ]]; then
+    echo ""
+    echo "─────────────────────────────────────────────────────────────"
+    log_info "Configure Media Library Directories"
+    echo ""
+    echo "Enter the paths to your media libraries on this system."
+    echo "These are the directories where your media files are stored."
+    echo "Press Enter to keep existing value or skip if not applicable."
+    echo ""
 
-# Prompt with existing values as defaults
-read -p "TV Shows directory [$EXISTING_TV_DIR]: " TV_DIR
-TV_DIR="${TV_DIR:-$EXISTING_TV_DIR}"
+    # Prompt with existing values as defaults
+    read -p "TV Shows directory [$EXISTING_TV_DIR]: " TV_DIR
+    TV_DIR="${TV_DIR:-$EXISTING_TV_DIR}"
 
-read -p "Movies directory [$EXISTING_MOVIES_DIR]: " MOVIES_DIR
-MOVIES_DIR="${MOVIES_DIR:-$EXISTING_MOVIES_DIR}"
+    read -p "Movies directory [$EXISTING_MOVIES_DIR]: " MOVIES_DIR
+    MOVIES_DIR="${MOVIES_DIR:-$EXISTING_MOVIES_DIR}"
 
-read -p "Music directory [$EXISTING_MUSIC_DIR]: " MUSIC_DIR
-MUSIC_DIR="${MUSIC_DIR:-$EXISTING_MUSIC_DIR}"
+    read -p "Music directory [$EXISTING_MUSIC_DIR]: " MUSIC_DIR
+    MUSIC_DIR="${MUSIC_DIR:-$EXISTING_MUSIC_DIR}"
 
-read -p "Miscellaneous directory [$EXISTING_MISC_DIR]: " MISC_DIR
-MISC_DIR="${MISC_DIR:-$EXISTING_MISC_DIR}"
+    read -p "Miscellaneous directory [$EXISTING_MISC_DIR]: " MISC_DIR
+    MISC_DIR="${MISC_DIR:-$EXISTING_MISC_DIR}"
+else
+    # Keep existing values
+    TV_DIR="$EXISTING_TV_DIR"
+    MOVIES_DIR="$EXISTING_MOVIES_DIR"
+    MUSIC_DIR="$EXISTING_MUSIC_DIR"
+    MISC_DIR="$EXISTING_MISC_DIR"
+    log_info "Keeping existing library directories"
+fi
 
 # Validate at least one directory is provided
 if [[ -z "$TV_DIR" && -z "$MOVIES_DIR" && -z "$MUSIC_DIR" ]]; then
@@ -702,18 +762,22 @@ fi
 echo ""
 
 # Offer to configure Plex integration
-echo "─────────────────────────────────────────────────────────────"
-echo ""
-log_info "Configure Plex Integration (optional)"
-echo ""
-echo "The media converter can automatically notify Plex to scan"
-echo "converted files. This requires:"
-echo "  • Plex server URL and authentication token"
-echo "  • Path mappings (if Plex is on a different server)"
-echo ""
-read -p "Configure Plex integration now? [y/N]: " CONFIGURE_PLEX
+# If UPDATE_PLEX_CONFIG was set from existing config display, use that
+# Otherwise, prompt the user
+if [[ -z "$UPDATE_PLEX_CONFIG" ]]; then
+    echo "─────────────────────────────────────────────────────────────"
+    echo ""
+    log_info "Configure Plex Integration (optional)"
+    echo ""
+    echo "The media converter can automatically notify Plex to scan"
+    echo "converted files. This requires:"
+    echo "  • Plex server URL and authentication token"
+    echo "  • Path mappings (if Plex is on a different server)"
+    echo ""
+    read -p "Configure Plex integration now? [y/N]: " UPDATE_PLEX_CONFIG
+fi
 
-if [[ "$CONFIGURE_PLEX" =~ ^[Yy]$ ]]; then
+if [[ "$UPDATE_PLEX_CONFIG" =~ ^[Yy]$ ]]; then
     echo ""
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     if [[ -f "$SCRIPT_DIR/configure-plex-integration.sh" ]]; then
