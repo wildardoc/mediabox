@@ -1959,6 +1959,12 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                 audio_codecs = [s['codec_name'] for s in probe['streams'] if s['codec_type'] == 'audio']
                 all_aac = all(codec == 'aac' for codec in audio_codecs) if audio_codecs else True
             
+                # Initialize processing flags that will be checked later
+                needs_resolution_downgrade = False
+                needs_color_metadata_fix = False
+                needs_audio_metadata_fix = False
+                has_non_english_audio = False
+                
                 # Check if we have surround sound and what additional tracks might be needed
                 has_surround = False
                 has_stereo = False
@@ -2003,10 +2009,7 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                 needs_stereo_track = has_processable_surround and (not has_enhanced_stereo or force_stereo)
                 needs_51_from_71 = has_71 and not has_51 and has_processable_surround
             
-                # Check if audio metadata needs fixing
-                needs_audio_metadata_fix = False
-                has_non_english_audio = False
-            
+                # Check if audio metadata needs fixing or non-English audio present
                 for stream in probe['streams']:
                     if stream['codec_type'] == 'audio':
                         lang = stream.get('tags', {}).get('language', '').lower()
@@ -2023,7 +2026,6 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                             logging.info(f"Found unlabeled audio stream that needs English language tag")
             
                 # Check if resolution downgrading is needed
-                needs_resolution_downgrade = False
                 if downgrade_resolution:
                     for stream in probe['streams']:
                         if stream['codec_type'] == 'video':
@@ -2041,7 +2043,6 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                             break
             
                 # Check if video has proper color metadata (bt709 for SDR content)
-                needs_color_metadata_fix = False
                 for stream in probe['streams']:
                     if stream['codec_type'] == 'video':
                         color_primaries = stream.get('color_primaries', '')
