@@ -115,3 +115,4 @@ conversion_stats.json
 
 # Scan output files
 scripts/library_*.txt
+*.code-workspace
