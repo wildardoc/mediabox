@@ -1,5 +1,0 @@
-Media Library Audio Integrity Scan
-Generated: Wed Nov 12 06:32:51 PM CST 2025
-Scan paths: /FileServer/media/tv /FileServer/media/movies
-
-================================================================================
