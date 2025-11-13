@@ -50,14 +50,21 @@ echo ""
 
 # Build list of all video files
 temp_file_list=$(mktemp)
+
+# Temporarily disable pipefail for the find commands (they can exit with SIGPIPE when writing to file)
+set +o pipefail
+
 for media_path in "${MEDIA_PATHS[@]}"; do
     if [[ -d "$media_path" ]]; then
         echo "Scanning: $media_path"
-        find "$media_path" -type f \( "${VIDEO_EXTS[@]}" \) >> "$temp_file_list"
+        find "$media_path" -type f \( "${VIDEO_EXTS[@]}" \) >> "$temp_file_list" 2>/dev/null || true
     else
         echo "Warning: Path not found: $media_path"
     fi
 done
+
+# Re-enable pipefail
+set -o pipefail
 
 total_files=$(wc -l < "$temp_file_list")
 echo ""
@@ -69,29 +76,43 @@ echo ""
 current=0
 last_percent=-1
 
+# Disable pipefail for the main scanning loop since we handle errors explicitly
+set +o pipefail
+
 while IFS= read -r file; do
-    ((current++))
+    current=$((current + 1))
     
     # Calculate progress percentage
     percent=$((current * 100 / total_files))
     
     # Only update display every 1%
     if [[ $percent -ne $last_percent ]]; then
-        echo -ne "\rProgress: $percent% ($current/$total_files files) | No audio: $no_audio_count | Errors: $error_count"
+        printf "\rProgress: %d%% (%d/%d files) | No audio: %d | Errors: %d" "$percent" "$current" "$total_files" "$no_audio_count" "$error_count"
         last_percent=$percent
     fi
     
     # Check for audio streams
-    if ! audio_count=$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$file" 2>/dev/null | wc -l); then
-        # ffprobe error
-        ((error_count++))
-        echo "ERROR: $file" >> "$REPORT"
+    audio_streams=$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$file" 2>/dev/null || true)
+    
+    # Count audio streams safely (grep -c returns 1 when no matches, which breaks pipefail)
+    if [[ -n "$audio_streams" ]]; then
+        audio_count=$(echo "$audio_streams" | wc -l)
+    else
+        audio_count=0
+    fi
+    
+    # If ffprobe completely failed, audio_streams will be empty but we need to detect actual errors
+    # vs files with genuinely no audio. Check if file is readable.
+    if [[ ! -r "$file" ]]; then
+        # File read error
+        error_count=$((error_count + 1))
+        echo "ERROR (unreadable): $file" >> "$REPORT"
         audio_count=0
     fi
     
     if [[ $audio_count -eq 0 ]]; then
         # No audio streams
-        ((no_audio_count++))
+        no_audio_count=$((no_audio_count + 1))
         echo "$file" >> "$NO_AUDIO_LIST"
         echo "NO AUDIO: $file" >> "$REPORT"
         
@@ -101,15 +122,18 @@ while IFS= read -r file; do
         echo "  Size: ${size_mb}MB" >> "$REPORT"
     else
         # Has audio
-        ((has_audio_count++))
+        has_audio_count=$((has_audio_count + 1))
     fi
     
 done < "$temp_file_list"
 
+# Re-enable pipefail
+set -o pipefail
+
 # Clean up
 rm -f "$temp_file_list"
 
-echo -e "\r                                                                                      "
+printf "\r%80s\r" " "  # Clear the progress line
 echo ""
 echo "========================================="
 echo "SCAN COMPLETE"
