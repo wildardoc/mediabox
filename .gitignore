@@ -112,3 +112,6 @@ archive/backup/
 test-*.sh
 test-*.py
 conversion_stats.json
+
+# Scan output files
+scripts/library_*.txt
