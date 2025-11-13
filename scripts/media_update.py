@@ -1369,8 +1369,8 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_r
                     else:
                         logging.info(f"Skipping stereo creation - existing enhanced stereo track found")
                         
-                elif channel_layout == 'unknown' and channels == 6:
-                    # 6-channel unknown layout can be fixed with channelmap filter
+                elif (channel_layout == 'unknown' or channel_layout == '' or 'channel_layout' not in stream) and channels == 6:
+                    # 6-channel unknown or missing layout can be fixed with channelmap filter
                     surround_has_processable_layout = True
                     if not has_existing_enhanced_stereo or force_stereo:
                         should_create_stereo = True
@@ -1408,13 +1408,20 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_r
         
         # Always map surround channel - apply channelmap fix for 6-channel unknown layouts
         # Check if this surround stream needs channelmap filter
+        # IMPORTANT: Many 6-channel files have MISSING channel_layout field (not "unknown", just absent)
+        # FFmpeg can auto-detect these as 5.1, but pan filter needs explicit layout definition
         needs_channelmap_fix = False
         for stream in probe['streams']:
             if stream['index'] == surround_idx and stream['codec_type'] == 'audio':
-                channel_layout = stream.get('channel_layout', 'unknown') 
+                # Don't use default 'unknown' - check if key exists
+                has_layout = 'channel_layout' in stream
+                channel_layout = stream.get('channel_layout', '') if has_layout else None
                 channels = int(stream.get('channels', 0))
-                if (channel_layout == 'unknown' or channel_layout == '') and channels == 6:
+                # Apply channelmap for: missing layout, unknown layout, or empty layout
+                # All three cases need channelmap to define explicit 5.1 layout for downstream filters
+                if (channel_layout is None or channel_layout == 'unknown' or channel_layout == '') and channels == 6:
                     needs_channelmap_fix = True
+                    logging.info(f"Stream {surround_idx}: 6-channel with {('missing' if channel_layout is None else repr(channel_layout))} layout - will apply channelmap")
                     break
         
         # Always map the original surround stream to preserve it alongside any created tracks
@@ -1428,7 +1435,19 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_r
             # Add channelmap filter to fix the unknown 6-channel layout to 5.1
             # Use audio-relative index to handle files where audio streams come before video
             audio_idx = audio_stream_map.get(surround_idx, surround_idx)
-            channelmap_filter = f'[0:a:{audio_idx}]channelmap=0-FL|1-FR|2-FC|3-LFE|4-BL|5-BR:5.1[fixed_surround]'
+            
+            # CRITICAL FIX: When creating stereo from channelmap output, must use asplit
+            # Problem: Some 6-channel files have missing channel_layout metadata (not "unknown", just missing)
+            # Solution: Apply channelmap to define layout, then asplit to create two branches:
+            #   1. [fixed_surround] - for preserving the original 5.1 audio
+            #   2. [for_stereo] - for passing to the pan filter to create enhanced stereo
+            # Without asplit, trying to map [fixed_surround] fails because it's consumed by the pan filter
+            # Fixed: Nov 2025 - Issue with Luca (2021) and other files with missing channel_layout
+            if should_create_stereo:
+                channelmap_filter = f'[0:a:{audio_idx}]channelmap=0-FL|1-FR|2-FC|3-LFE|4-BL|5-BR:channel_layout=5.1,asplit=2[fixed_surround][for_stereo]'
+                logging.info(f"Using channelmap with asplit to preserve original and create stereo from stream {surround_idx}")
+            else:
+                channelmap_filter = f'[0:a:{audio_idx}]channelmap=0-FL|1-FR|2-FC|3-LFE|4-BL|5-BR:channel_layout=5.1[fixed_surround]'
             
             if len(filter_complex) == 1:  # Only has '-filter_complex'
                 filter_complex.append(channelmap_filter)
@@ -1465,7 +1484,13 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_r
         
         # Create 5.1 from 7.1 if needed (done first so stereo can use it)
         audio_idx = audio_stream_map.get(surround_idx, surround_idx)
-        surround_source_for_stereo = '[fixed_surround]' if needs_channelmap_fix else f'[0:a:{audio_idx}]'
+        # If channelmap was used with asplit, use the [for_stereo] branch
+        if needs_channelmap_fix and should_create_stereo:
+            surround_source_for_stereo = '[for_stereo]'
+        elif needs_channelmap_fix:
+            surround_source_for_stereo = '[fixed_surround]'
+        else:
+            surround_source_for_stereo = f'[0:a:{audio_idx}]'
         
         if should_create_51_from_71:
             # Create 5.1 from 7.1 by mixing side channels into back channels
