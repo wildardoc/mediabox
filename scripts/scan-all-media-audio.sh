@@ -82,13 +82,14 @@ while IFS= read -r file; do
     fi
     
     # Check for audio streams
-    audio_count=$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$file" 2>/dev/null | wc -l)
-    
-    if [[ $? -ne 0 ]]; then
+    if ! audio_count=$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$file" 2>/dev/null | wc -l); then
         # ffprobe error
         ((error_count++))
         echo "ERROR: $file" >> "$REPORT"
-    elif [[ $audio_count -eq 0 ]]; then
+        audio_count=0
+    fi
+    
+    if [[ $audio_count -eq 0 ]]; then
         # No audio streams
         ((no_audio_count++))
         echo "$file" >> "$NO_AUDIO_LIST"
