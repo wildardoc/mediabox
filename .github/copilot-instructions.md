@@ -473,6 +473,254 @@ healthcheck:
 - [ ] Backward compatibility maintained
 - [ ] Test edge cases and error conditions
 
+## 🧪 **AI-Assisted Development Best Practices**
+
+This project is built almost entirely using AI assistance. These guidelines ensure quality and maintainability:
+
+### **1. Preserve Fixes with Triple Documentation**
+
+When fixing bugs or implementing critical features, ALWAYS create three layers of protection:
+
+```bash
+# Layer 1: Inline Code Comments (explains "why" at the exact line)
+if 'channel_layout' in stream:  # IMPORTANT: Check key existence, not value
+    # Missing field (None) is different from "unknown" string
+
+# Layer 2: Git Commit with Detailed Message
+git commit -m "Fix: Audio processing for 6-channel files with missing channel_layout
+
+Root Cause:
+- Files from streaming services often lack channel_layout field entirely
+- Detection only checked for 'unknown' value, missed None/missing cases
+- FFmpeg filter outputs consumed before being mapped
+
+Solution:
+- Check key existence with 'in' operator instead of .get()
+- Use asplit to branch channelmap output for dual use
+- Updated syntax from :5.1 to :channel_layout=5.1
+
+Affected Files: Disney+, Apple TV+, Amazon Prime downloads
+Testing: Verified with Luca (2021) WEBDL-2160p.mp4"
+
+# Layer 3: Reference Documentation (project-level explanation)
+# Create FEATURE_NAME_FIX.md or ISSUE_XX_RESOLUTION.md
+```
+
+**Why Triple Documentation?**
+- **Inline comments**: Future AI sees context when editing nearby code
+- **Git history**: Explains "what changed and why" for debugging regressions
+- **Reference docs**: Provides searchable context for similar issues
+
+### **2. Test FFmpeg Commands Manually First**
+
+Before implementing complex FFmpeg filter chains, validate them manually:
+
+```bash
+# ❌ DON'T: Implement untested filter chain directly in script
+video_filters.append('channelmap=...,pan=...')  # Hope it works
+
+# ✅ DO: Test command manually with actual problematic file
+ffmpeg -i "Luca (2021).mp4" \
+  -filter_complex "[0:a:0]channelmap=0-FL|1-FR|2-FC|3-LFE|4-BL|5-BR:channel_layout=5.1,asplit=2[fixed][stereo]; \
+                   [stereo]pan=stereo|c0=...|c1=...[out]" \
+  -map "[fixed]" -map "[out]" test_output.mp4
+
+# If successful, THEN implement in script
+```
+
+**Benefits:**
+- Identifies syntax errors immediately
+- Tests with actual problematic files
+- Validates filter output before committing code
+
+### **3. Handle Missing vs Empty vs Unknown Values**
+
+Python dictionaries and ffprobe JSON require careful distinction:
+
+```python
+# ❌ INCORRECT - Misses truly missing fields
+channel_layout = stream.get('channel_layout', 'unknown')
+if channel_layout == 'unknown':  # Misses None/missing cases
+
+# ✅ CORRECT - Handles all three cases
+has_layout = 'channel_layout' in stream
+channel_layout = stream.get('channel_layout', '') if has_layout else None
+
+if channel_layout is None:      # Field completely missing
+    needs_fix = True
+elif channel_layout == 'unknown':  # Field present but unknown value
+    needs_fix = True
+elif channel_layout == '':      # Field present but empty string
+    needs_fix = True
+```
+
+**Real-World Example:**
+- **Disney+ downloads**: `channel_layout` key missing entirely → `None`
+- **Old rips**: `channel_layout: "unknown"` → string value
+- **Corrupted metadata**: `channel_layout: ""` → empty string
+
+### **4. FFmpeg Filter Graph Rules**
+
+Critical rules when chaining filters (learned from audio processing bugs):
+
+```bash
+# RULE 1: Filter outputs are consumed when used
+[input]filter1[output1]; [output1]filter2[final]  # output1 consumed, unavailable
+
+# RULE 2: Use asplit for dual usage
+[input]filter1,asplit=2[branch1][branch2]; [branch1]...; [branch2]...
+
+# RULE 3: Always specify full filter parameters
+channelmap=:5.1                           # ❌ Incomplete syntax
+channelmap=0-FL|1-FR|...:channel_layout=5.1  # ✅ Explicit and complete
+
+# RULE 4: Use audio-relative stream specifiers
+[0:1]  # ❌ Absolute index (breaks with subtitle streams)
+[0:a:0]  # ✅ First audio stream (works regardless of stream order)
+```
+
+### **5. Debugging Workflow for AI Sessions**
+
+When AI encounters failures, follow this systematic approach:
+
+```bash
+# Step 1: Get exact error message (not truncated)
+python3 media_update.py --file "problem.mp4" 2>&1 | tee full_error.log
+
+# Step 2: Identify the failing FFmpeg command
+grep "ffmpeg -i" full_error.log
+
+# Step 3: Extract and test manually
+# Copy the exact command and run it directly
+
+# Step 4: Simplify progressively
+# Remove filters one-by-one until it works, then add back
+
+# Step 5: Compare working vs failing
+diff <(echo "$working_command") <(echo "$failing_command")
+```
+
+**AI Guidance:**
+- Show full error output (not "similar errors")
+- Test hypotheses with actual commands before code changes
+- Validate fixes work before committing
+
+### **6. Preserve AI Context Between Sessions**
+
+Create reference documents that survive conversation resets:
+
+```markdown
+# AUDIO_CHANNELMAP_FIX.md
+
+## Problem
+Files with 6-channel audio but missing `channel_layout` field fail...
+
+## Solution  
+[Exact code snippets and FFmpeg commands]
+
+## Testing
+[Command to identify affected files]
+
+## DO NOT REVERT
+[Explain why this fix is critical]
+```
+
+**Benefits:**
+- Future AI sessions can read these docs
+- Prevents re-implementing the same bugs
+- Provides searchable project knowledge base
+
+### **7. Log Everything for Post-Mortem Analysis**
+
+```python
+# Add context-rich logging at decision points
+logging.info(f"Channel layout detection: has_key={has_layout}, "
+             f"value={channel_layout}, channels={channels}")
+
+if needs_channelmap_fix:
+    logging.info(f"Applying channelmap fix: missing channel_layout "
+                 f"on {channels}-channel stream")
+```
+
+**Why:**
+- Logs reveal what AI's code actually detected
+- Helps diagnose false positives/negatives
+- Provides data for improving detection logic
+
+### **8. Version Control Best Practices for AI Projects**
+
+```bash
+# Commit frequently with descriptive messages
+git commit -m "WIP: Testing channelmap with asplit approach"
+
+# Tag working states
+git tag -a v1.5-audio-fix -m "Working fix for missing channel_layout"
+
+# Use branches for experiments
+git checkout -b experiment/alternative-audio-fix
+
+# Document failed approaches
+git commit --allow-empty -m "Attempted: pan without asplit (fails with 'output not found')"
+```
+
+**Rationale:**
+- AI can't remember previous attempts across sessions
+- Git history becomes the "project memory"
+- Easy rollback when AI suggests breaking changes
+
+## 🎓 **Lessons from Real Bugs**
+
+### **Case Study: Missing channel_layout Audio Processing**
+
+**Issue**: Luca (2021) and other streaming downloads failed with "Output with label 'fixed_surround' does not exist"
+
+**Root Causes Discovered:**
+1. **Assumption failure**: Assumed ffprobe always includes `channel_layout` field
+2. **Detection logic**: Only checked for `'unknown'` value, missed `None` (missing key)
+3. **Filter consumption**: FFmpeg pan filter consumed `[fixed_surround]` output, making it unavailable for mapping
+4. **Syntax error**: Used `:5.1` instead of proper `:channel_layout=5.1`
+
+**AI Development Challenges:**
+- Initial fixes addressed symptoms, not root cause
+- Required 3 iterations to identify all issues
+- Manual FFmpeg testing revealed the asplit requirement
+
+**Final Solution:**
+```python
+# Detection: Check if key exists
+has_layout = 'channel_layout' in stream
+needs_fix = not has_layout or channel_layout in ['unknown', '']
+
+# Branching: Use asplit for dual usage
+channelmap_filter = f'channelmap=...:channel_layout=5.1,asplit=2[fixed][stereo]'
+
+# Routing: Use different branches
+# [fixed] → direct output mapping
+# [stereo] → input to pan filter
+```
+
+**Documentation Created:**
+- Inline comments at Lines 1416, 1433, 1479 (code context)
+- Git commit 9dfa54d (change history)
+- AUDIO_CHANNELMAP_FIX.md (reference guide)
+
+**Key Takeaway**: One comprehensive fix with triple documentation prevents future AI from reintroducing the bug.
+
+### **When to Update AI Instructions**
+
+Update `.github/copilot-instructions.md` when:
+- [ ] Critical bug pattern discovered (like missing vs unknown values)
+- [ ] New security vulnerability found and fixed
+- [ ] Complex debugging required multiple AI iterations
+- [ ] Solution contradicts previous assumptions
+- [ ] Common mistake that could happen again
+
+**Update Process:**
+1. Document the issue thoroughly
+2. Add to AI instructions with code examples
+3. Commit with clear explanation
+4. Reference in related code comments
+
 ## 🚀 **Development Workflows**
 
 ### **Adding New Features**
