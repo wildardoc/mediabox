@@ -2068,15 +2068,23 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                             break
             
                 # Check if video has proper color metadata (bt709 for SDR content)
+                needs_10bit_conversion = False
                 for stream in probe['streams']:
                     if stream['codec_type'] == 'video':
                         color_primaries = stream.get('color_primaries', '')
                         color_trc = stream.get('color_transfer', '')
                         colorspace = stream.get('color_space', '')
+                        pix_fmt = stream.get('pix_fmt', '')
+                        
+                        # Check for 10-bit pixel format (causes pink screens on many players)
+                        # IMPORTANT: yuv420p10le must be converted to yuv420p (8-bit)
+                        if '10le' in pix_fmt or '10be' in pix_fmt:
+                            needs_10bit_conversion = True
+                            logging.info(f"10-bit pixel format detected ({pix_fmt}) - needs conversion to 8-bit")
                         
                         # Check if this is HDR content (which will be tone-mapped)
                         is_hdr_content = (color_trc in ['smpte2084', 'arib-std-b67'] or 
-                                         (color_primaries == 'bt2020' and '10' in stream.get('pix_fmt', '')))
+                                         (color_primaries == 'bt2020' and '10' in pix_fmt))
                         
                         # For SDR content, verify bt709 colorspace is set
                         if not is_hdr_content:
@@ -2088,10 +2096,13 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                 # Enhanced skip logic - only skip if format AND metadata are perfect AND not forcing stereo AND not downgrading resolution
                 if (vcodec == 'h264' and all_aac and input_file.lower().endswith(('.mp4', '.mkv')) and 
                     not needs_stereo_track and not needs_51_from_71 and not needs_audio_metadata_fix and not has_non_english_audio and 
-                    not force_stereo and not needs_resolution_downgrade and not needs_color_metadata_fix):
+                    not force_stereo and not needs_resolution_downgrade and not needs_color_metadata_fix and not needs_10bit_conversion):
                     print(f"Skipping: {input_file} is already H.264/AAC with proper audio and color metadata.")
                     logging.info(f"Skipping: {input_file} is already H.264/AAC with proper audio and color metadata.")
                     return
+                elif needs_10bit_conversion:
+                    print(f"Transcoding: {input_file} - converting 10-bit to 8-bit to fix pink screen issues.")
+                    logging.info(f"Transcoding: {input_file} - converting 10-bit to 8-bit to fix pink screen issues.")
                 elif needs_resolution_downgrade:
                     print(f"Transcoding: {input_file} - downgrading resolution from high definition to 1080p.")
                     logging.info(f"Transcoding: {input_file} - downgrading resolution from high definition to 1080p.")
