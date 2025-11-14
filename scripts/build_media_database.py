@@ -309,10 +309,16 @@ class MediaScanner:
         
         # Video file checks
         vcodec = video_stream.get('codec_name', '')
+        pix_fmt = video_stream.get('pix_fmt', '')
         
         # Check if already H.264
         if vcodec != 'h264':
             return 'needs_video_conversion'
+        
+        # Check for 10-bit pixel format (causes pink screens on many players)
+        # IMPORTANT: yuv420p10le must be converted to yuv420p (8-bit)
+        if '10le' in pix_fmt or '10be' in pix_fmt:
+            return 'needs_10bit_to_8bit_conversion'
         
         # Check if HDR (needs tone mapping)
         if self._is_hdr(probe):
