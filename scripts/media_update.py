@@ -1684,16 +1684,20 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_r
             video_args = ['-c:v', 'libx264', '-crf', '23', '-preset', 'medium',
                          '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv']
         logging.info(f"Using software encoding for HDR tone mapping with BT.709 color correction")
-    elif is_2160p_source and needs_scaling:
-        # Force software encoding for 2160p→1080p downscaling to prevent color issues (pink gradients)
+    elif is_2160p_source:
+        # Force software encoding for ALL 2160p sources to prevent color issues (pink gradients)
         # VAAPI has color space handling issues with WEBDL 2160p sources that have missing/incorrect metadata
+        # This applies whether downscaling to 1080p OR keeping at 2160p
         if video_filter:
             video_args = ['-c:v', 'libx264', '-vf', video_filter, '-crf', '23', '-preset', 'medium',
                          '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv']
         else:
             video_args = ['-c:v', 'libx264', '-crf', '23', '-preset', 'medium',
                          '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv']
-        logging.info(f"Using software encoding for 2160p→1080p downscaling with BT.709 color correction (prevents pink gradients)")
+        if needs_scaling:
+            logging.info(f"Using software encoding for 2160p→1080p downscaling with BT.709 color correction (prevents pink gradients)")
+        else:
+            logging.info(f"Using software encoding for 2160p with BT.709 color correction (prevents pink gradients)")
     elif hwaccel['method'] == 'vaapi':
         if needs_scaling:
             # VAAPI scaling - insert scale before hwupload
