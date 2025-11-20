@@ -1669,8 +1669,11 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_r
     # Detect hardware acceleration capabilities
     hwaccel = detect_hardware_acceleration()
     
+    # Check if source is 2160p (4K) - these often have color space issues with hardware encoding
+    is_2160p_source = (video_height >= 2160 or video_width >= 3840)
+    
     # Build video encoding args based on available acceleration
-    # NOTE: HDR tone mapping requires software encoding (zscale filter not compatible with VAAPI)
+    # NOTE: HDR tone mapping AND 2160p downscaling require software encoding for proper color handling
     video_args = []
     if hdr_info['is_hdr']:
         # Force software encoding for HDR tone mapping (zscale not supported in VAAPI)
@@ -1681,6 +1684,16 @@ def build_ffmpeg_command(input_file, probe=None, force_stereo=False, downgrade_r
             video_args = ['-c:v', 'libx264', '-crf', '23', '-preset', 'medium',
                          '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv']
         logging.info(f"Using software encoding for HDR tone mapping with BT.709 color correction")
+    elif is_2160p_source and needs_scaling:
+        # Force software encoding for 2160p→1080p downscaling to prevent color issues (pink gradients)
+        # VAAPI has color space handling issues with WEBDL 2160p sources that have missing/incorrect metadata
+        if video_filter:
+            video_args = ['-c:v', 'libx264', '-vf', video_filter, '-crf', '23', '-preset', 'medium',
+                         '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv']
+        else:
+            video_args = ['-c:v', 'libx264', '-crf', '23', '-preset', 'medium',
+                         '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv']
+        logging.info(f"Using software encoding for 2160p→1080p downscaling with BT.709 color correction (prevents pink gradients)")
     elif hwaccel['method'] == 'vaapi':
         if needs_scaling:
             # VAAPI scaling - insert scale before hwupload
