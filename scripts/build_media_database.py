@@ -218,12 +218,9 @@ class MediaScanner:
             probe_start = time.time()
             probe = ffmpeg.probe(filepath)
             probe_time = time.time() - probe_start
-            
-            # Determine action needed
-            action = self._determine_action(probe)
-            
-            # Store in database
-            self.db.store_probe(fingerprint, probe, action)
+
+            # Store in database (action is determined dynamically by needs_conversion())
+            self.db.store_probe(fingerprint, probe)
             
             # Update stats
             if force_rescan:
@@ -289,55 +286,7 @@ class MediaScanner:
             return True
         
         return False
-    
-    def _determine_action(self, probe):
-        """
-        Determine what action is needed for this file.
-        Simplified version - full logic should match media_update.py
-        
-        Returns:
-            str: Action needed ('skip', 'needs_conversion', etc.)
-        """
-        video_stream = next((s for s in probe.get('streams', []) if s['codec_type'] == 'video'), None)
-        audio_streams = [s for s in probe.get('streams', []) if s['codec_type'] == 'audio']
-        
-        if not video_stream:
-            # Audio-only file
-            if audio_streams and audio_streams[0].get('codec_name') != 'mp3':
-                return 'needs_audio_conversion'
-            return 'skip'
-        
-        # Video file checks
-        vcodec = video_stream.get('codec_name', '')
-        pix_fmt = video_stream.get('pix_fmt', '')
-        
-        # Check if already H.264
-        if vcodec != 'h264':
-            return 'needs_video_conversion'
-        
-        # Check for 10-bit pixel format (causes pink screens on many players)
-        # IMPORTANT: yuv420p10le must be converted to yuv420p (8-bit)
-        if '10le' in pix_fmt or '10be' in pix_fmt:
-            return 'needs_10bit_to_8bit_conversion'
-        
-        # Check if HDR (needs tone mapping)
-        if self._is_hdr(probe):
-            return 'needs_hdr_tonemap'
-        
-        # Check audio
-        all_aac = all(s.get('codec_name') == 'aac' for s in audio_streams)
-        if not all_aac:
-            return 'needs_audio_conversion'
-        
-        # Check for stereo track
-        has_stereo = any(s.get('channels') == 2 for s in audio_streams)
-        has_surround = any(s.get('channels', 0) > 2 for s in audio_streams)
-        
-        if has_surround and not has_stereo:
-            return 'needs_stereo_track'
-        
-        return 'skip'
-    
+
     def _print_summary(self):
         """Print scan summary"""
         elapsed = time.time() - self.start_time
@@ -400,12 +349,15 @@ Examples:
   
   # Show database statistics
   %(prog)s --stats
-  
+
   # Clean up deleted files
   %(prog)s --cleanup
+
+  # Migrate cache to new format (remove legacy fields, verify hashes)
+  %(prog)s --migrate /Storage/media/tv /Storage/media/movies /Storage/media/music
         """
     )
-    
+
     parser.add_argument('--scan', nargs='+', metavar='DIR',
                        help='Scan directories for media files')
     parser.add_argument('--force', action='store_true',
@@ -414,18 +366,21 @@ Examples:
                        help='Show cache statistics for directories (uses scanned dirs if none specified)')
     parser.add_argument('--cleanup', nargs='*', metavar='DIR',
                        help='Remove cache entries for deleted files (uses scanned dirs if none specified)')
+    parser.add_argument('--migrate', nargs='+', metavar='DIR',
+                       help='Migrate cache files: remove stale entries, remove legacy fields (file_path, action), verify hashes')
     parser.add_argument('--db', metavar='PATH',
                        help='Database file path (ignored for JSON backend, kept for compatibility)')
     parser.add_argument('-v', '--verbose', action='store_true',
                        help='Verbose output (show every file)')
-    
+
     args = parser.parse_args()
-    
+
     # Allow --stats and --cleanup to be flags without arguments
     show_stats = args.stats is not None
     do_cleanup = args.cleanup is not None
-    
-    if not any([args.scan, show_stats, do_cleanup]):
+    do_migrate = args.migrate is not None
+
+    if not any([args.scan, show_stats, do_cleanup, do_migrate]):
         parser.print_help()
         sys.exit(1)
     
@@ -459,7 +414,21 @@ Examples:
             else:
                 print("⚠️  No directories specified for cleanup")
                 print()
-        
+
+        # Migrate if requested
+        if do_migrate:
+            print("🔄 Migrating cache files to new format...")
+            print("   - Removing stale entries (files that no longer exist or changed)")
+            print("   - Removing legacy fields (file_path, action)")
+            print()
+            result = scanner.db.migrate_cache(args.migrate)
+            print(f"   Directories processed: {result['directories_processed']}")
+            print(f"   Entries migrated (legacy fields removed): {result['entries_migrated']}")
+            print(f"   Entries removed (file missing or changed): {result['entries_removed']}")
+            if result['errors'] > 0:
+                print(f"   Errors: {result['errors']}")
+            print()
+
         # Show stats if requested
         if show_stats:
             if stats_dirs:

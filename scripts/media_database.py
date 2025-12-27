@@ -81,7 +81,111 @@ class MediaDatabase:
             os.rename(temp_file, cache_file)
         except IOError as e:
             print(f"Warning: Could not save cache file {cache_file}: {e}")
-    
+
+    def cleanup_stale_entries(self, directory):
+        """
+        Remove cache entries for files that no longer exist in the directory.
+
+        Args:
+            directory (str): Directory path to clean up
+
+        Returns:
+            int: Number of stale entries removed
+        """
+        cache_file = os.path.join(directory, CACHE_FILENAME)
+        if not os.path.exists(cache_file):
+            return 0
+
+        cache_data = self._load_cache(cache_file)
+        if not cache_data:
+            return 0
+
+        # Get list of actual files in directory
+        try:
+            actual_files = set(os.listdir(directory))
+        except OSError:
+            return 0
+
+        # Find stale entries (files that don't exist)
+        stale_hashes = []
+        for hash_key, entry in cache_data.items():
+            file_name = entry.get('file_name')
+            if file_name and file_name not in actual_files:
+                stale_hashes.append(hash_key)
+
+        # Remove stale entries
+        for hash_key in stale_hashes:
+            del cache_data[hash_key]
+
+        if stale_hashes:
+            self._save_cache(cache_file, cache_data)
+
+        return len(stale_hashes)
+
+    def needs_conversion(self, fingerprint, force_stereo=False, downgrade_resolution=False):
+        """
+        Evaluate whether a file needs conversion based on cached properties and current rules.
+
+        This replaces the simple 'action: skip' flag with actual rule evaluation.
+
+        Args:
+            fingerprint (dict): Fingerprint from get_file_fingerprint()
+            force_stereo (bool): Force stereo track creation
+            downgrade_resolution (bool): Force resolution downgrade
+
+        Returns:
+            tuple: (needs_conversion: bool, reasons: list of str)
+        """
+        if not fingerprint:
+            return True, ['no_fingerprint']
+
+        cache_file = self._get_cache_file_path(fingerprint['path'])
+        cache_data = self._load_cache(cache_file)
+
+        if not cache_data:
+            return True, ['no_cache']
+
+        entry = cache_data.get(fingerprint['hash'])
+        if not entry:
+            return True, ['not_in_cache']
+
+        reasons = []
+        file_name = entry.get('file_name', '')
+
+        # Rule 1: Must be .mp4 container
+        if not file_name.lower().endswith('.mp4'):
+            reasons.append('not_mp4_container')
+
+        # Rule 2: Must be H.264 video codec
+        if entry.get('codec_video') != 'h264':
+            reasons.append('not_h264_codec')
+
+        # Rule 3: Must be AAC audio codec
+        if entry.get('codec_audio') != 'aac':
+            reasons.append('not_aac_codec')
+
+        # Rule 4: Must have stereo track (if has surround)
+        if entry.get('has_surround_track') and not entry.get('has_stereo_track'):
+            reasons.append('missing_stereo_track')
+
+        # Rule 5: Force stereo requested
+        if force_stereo:
+            reasons.append('force_stereo_requested')
+
+        # Rule 6: HDR content needs conversion to SDR
+        if entry.get('is_hdr'):
+            reasons.append('hdr_needs_tonemapping')
+
+        # Rule 7: 10-bit needs conversion to 8-bit
+        if entry.get('bit_depth', 8) > 8:
+            reasons.append('10bit_needs_conversion')
+
+        # Rule 8: Resolution downgrade requested
+        if downgrade_resolution and entry.get('height', 0) > 1080:
+            reasons.append('resolution_downgrade_requested')
+
+        return len(reasons) > 0, reasons
+
     def get_file_fingerprint(self, filepath):
         """
         Generate quick fingerprint for file without full probe.
@@ -211,37 +315,17 @@ class MediaDatabase:
             probe['streams'].append(audio_stream)
         
         return probe
-    
-    def get_cached_action(self, fingerprint):
+
+    def store_probe(self, fingerprint, probe, conversion_params=None):
         """
-        Get the cached conversion action decision.
-        
-        Args:
-            fingerprint (dict): Fingerprint from get_file_fingerprint()
-            
-        Returns:
-            str: Action ('skip', 'needs_conversion', etc.) or None
-        """
-        if not fingerprint:
-            return None
-        
-        cache_file = self._get_cache_file_path(fingerprint['path'])
-        cache_data = self._load_cache(cache_file)
-        
-        if not cache_data:
-            return None
-        
-        entry = cache_data.get(fingerprint['hash'])
-        return entry.get('action') if entry else None
-    
-    def store_probe(self, fingerprint, probe, action='unknown', conversion_params=None):
-        """
-        Store probe results and decision in cache.
-        
+        Store probe results in cache.
+
+        Conversion decisions are made dynamically using needs_conversion() which
+        evaluates current rules against cached file properties.
+
         Args:
             fingerprint (dict): Fingerprint from get_file_fingerprint()
             probe (dict): ffmpeg.probe() result
-            action (str): Decision ('skip', 'needs_conversion', etc.)
             conversion_params (dict, optional): Parameters for conversion
         """
         if not fingerprint or not probe:
@@ -290,16 +374,16 @@ class MediaDatabase:
         duration = float(format_data.get('duration', 0))
         bitrate = int(format_data.get('bit_rate', 0))
         
-        # Build cache entry
+        # Build cache entry - NO file_path stored (path-agnostic for cross-system use)
+        # The cache file is in the same directory as the media, so we only need filename
         from datetime import datetime
         entry = {
             'fingerprint_hash': fingerprint['hash'],
-            'file_path': fingerprint['path'],
             'file_name': fingerprint.get('filename', os.path.basename(fingerprint['path'])),
             'file_size': fingerprint['size'],
             'file_mtime': fingerprint['mtime'],
             'last_scanned': datetime.now().isoformat(),
-            
+
             'codec_video': codec_video,
             'codec_audio': codec_audio,
             'resolution': resolution,
@@ -307,20 +391,20 @@ class MediaDatabase:
             'height': height,
             'duration': duration,
             'bitrate': bitrate,
-            
+
             'is_hdr': is_hdr,
             'hdr_type': hdr_type,
             'color_transfer': color_transfer,
             'color_primaries': color_primaries,
             'color_space': color_space,
             'bit_depth': bit_depth,
-            
+
             'audio_channels': audio_channels,
             'audio_layout': audio_layout,
             'has_stereo_track': has_stereo,
             'has_surround_track': has_surround,
-            
-            'action': action,
+
+            # Note: 'action' field removed - use needs_conversion() to evaluate rules dynamically
             'conversion_params': conversion_params,
             'processing_version': MEDIA_DATABASE_VERSION,
             
@@ -388,34 +472,38 @@ class MediaDatabase:
                         entry['last_processed'] = datetime.now().isoformat()
                         entry['conversion_count'] = entry.get('conversion_count', 0) + 1
                         entry['last_conversion_duration'] = duration
-                        entry['action'] = 'skip'
                         entry['processing_error'] = None
                         entry['fingerprint_hash'] = new_fingerprint['hash']
-                        entry['file_path'] = new_fingerprint['path']
+                        entry['file_name'] = new_fingerprint.get('filename', os.path.basename(new_fingerprint['path']))
                         entry['file_size'] = new_fingerprint['size']
                         entry['file_mtime'] = new_fingerprint['mtime']
+                        # Remove legacy fields if present
+                        entry.pop('file_path', None)
+                        entry.pop('action', None)
                         new_cache_data[new_fingerprint['hash']] = entry
                         self._save_cache(new_cache_file, new_cache_data)
                         return
-                    
+
                     # Same directory - update entry
                     entry['last_processed'] = datetime.now().isoformat()
                     entry['conversion_count'] = entry.get('conversion_count', 0) + 1
                     entry['last_conversion_duration'] = duration
-                    entry['action'] = 'skip'
                     entry['processing_error'] = None
-                    
+                    # Remove legacy fields if present
+                    entry.pop('file_path', None)
+                    entry.pop('action', None)
+
                     # If fingerprint changed (file was modified), update the hash key
                     if new_fingerprint['hash'] != original_fingerprint['hash']:
                         # Remove old entry
                         del cache_data[original_fingerprint['hash']]
-                        
+
                         # Update entry with new fingerprint details
                         entry['fingerprint_hash'] = new_fingerprint['hash']
-                        entry['file_path'] = new_fingerprint['path']
+                        entry['file_name'] = new_fingerprint.get('filename', os.path.basename(new_fingerprint['path']))
                         entry['file_size'] = new_fingerprint['size']
                         entry['file_mtime'] = new_fingerprint['mtime']
-                        
+
                         # Add as new entry
                         cache_data[new_fingerprint['hash']] = entry
                     else:
@@ -431,13 +519,18 @@ class MediaDatabase:
                 entry['last_processed'] = datetime.now().isoformat()
                 entry['conversion_count'] = entry.get('conversion_count', 0) + 1
                 entry['last_conversion_duration'] = duration
-                entry['action'] = 'skip'
                 entry['processing_error'] = None
+                # Remove legacy fields if present
+                entry.pop('file_path', None)
+                entry.pop('action', None)
                 cache_data[original_fingerprint['hash']] = entry
         else:
             # Mark as failed
             entry['processing_error'] = error_message
             entry['last_processed'] = datetime.now().isoformat()
+            # Remove legacy fields if present
+            entry.pop('file_path', None)
+            entry.pop('action', None)
             cache_data[original_fingerprint['hash']] = entry
         
         # Save updated cache
@@ -629,7 +722,87 @@ class MediaDatabase:
             'total_removed': total_removed,
             'directories_cleaned': directories_cleaned
         }
-    
+
+    def migrate_cache(self, directories):
+        """
+        Migrate cache files to new format:
+        1. Remove entries for files that no longer exist
+        2. Remove legacy 'file_path' and 'action' fields from all entries
+        3. Verify fingerprint hash matches current file
+
+        Args:
+            directories (list): List of directories to migrate
+
+        Returns:
+            dict: Summary of migration
+        """
+        stats = {
+            'directories_processed': 0,
+            'entries_migrated': 0,
+            'entries_removed': 0,
+            'errors': 0
+        }
+
+        for directory in directories:
+            if not os.path.isdir(directory):
+                continue
+
+            # Walk subdirectories to find all cache files
+            for root, dirs, files in os.walk(directory):
+                if CACHE_FILENAME not in files:
+                    continue
+
+                cache_file = os.path.join(root, CACHE_FILENAME)
+                cache_data = self._load_cache(cache_file)
+                if not cache_data:
+                    continue
+
+                modified = False
+                new_cache_data = {}
+
+                # Get list of actual files in directory
+                try:
+                    actual_files = set(os.listdir(root))
+                except OSError:
+                    stats['errors'] += 1
+                    continue
+
+                for hash_key, entry in cache_data.items():
+                    file_name = entry.get('file_name')
+
+                    # Skip entries for files that don't exist
+                    if not file_name or file_name not in actual_files:
+                        stats['entries_removed'] += 1
+                        modified = True
+                        continue
+
+                    # Verify hash matches current file FIRST
+                    # If hash changed, the cached metadata is for the old file - remove it
+                    # Next time this file is processed, it will be re-probed with fresh data
+                    file_path = os.path.join(root, file_name)
+                    current_fingerprint = self.get_file_fingerprint(file_path)
+
+                    if current_fingerprint and current_fingerprint['hash'] != hash_key:
+                        # File changed - cached probe data is stale, remove entry
+                        stats['entries_removed'] += 1
+                        modified = True
+                        continue
+
+                    # Remove legacy fields
+                    if 'file_path' in entry or 'action' in entry:
+                        entry.pop('file_path', None)
+                        entry.pop('action', None)
+                        stats['entries_migrated'] += 1
+                        modified = True
+
+                    new_cache_data[hash_key] = entry
+
+                if modified:
+                    self._save_cache(cache_file, new_cache_data)
+                    stats['directories_processed'] += 1
+
+        return stats
+
     def close(self):
         """Close database connection (no-op for JSON backend)"""
         pass

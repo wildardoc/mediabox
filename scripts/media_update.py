@@ -1842,6 +1842,8 @@ def build_audio_ffmpeg_command(input_file, probe=None):
     return args
 
 def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
+    global processed_files
+
     # Step 1: Try to acquire lock file
     file_lock = None
     if FILELOCK_AVAILABLE:
@@ -1862,35 +1864,31 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
         logging.info(f"🔒 Lock acquired for: {os.path.basename(input_file)}")
     
     try:
-        # Step 2: Check if file needs conversion (cache check, probe, etc.)
-        conversion_needed = False
-        
-        # Check cache first
+        # Step 2: Check if file needs conversion using rule-based evaluation
+        conversion_needed = True
+        conversion_reasons = []
+
+        # Check cache and evaluate current rules against cached file properties
         if DATABASE_AVAILABLE and hasattr(transcode_file, 'db'):
             fingerprint = transcode_file.db.get_file_fingerprint(input_file)
             if fingerprint and transcode_file.db.has_cached_probe(fingerprint):
-                cache_file = transcode_file.db._get_cache_file_path(input_file)
-                cache_data = transcode_file.db._load_cache(cache_file)
-                cached_entry = cache_data.get(fingerprint['hash'], {})
-                cached_action = cached_entry.get('action')
-                
-                # If already converted, no need to process
-                if cached_action == 'skip':
-                    if not force_stereo and not downgrade_resolution:
-                        conversion_needed = False
-                    else:
-                        conversion_needed = True
-                        logging.info(f"Re-processing {os.path.basename(input_file)} due to --force-stereo or --downgrade-resolution")
-                else:
-                    # File needs processing
-                    conversion_needed = True
+                # Use the new needs_conversion() function that evaluates rules dynamically
+                conversion_needed, conversion_reasons = transcode_file.db.needs_conversion(
+                    fingerprint,
+                    force_stereo=force_stereo,
+                    downgrade_resolution=downgrade_resolution
+                )
+                if conversion_needed:
+                    logging.info(f"Conversion needed for {os.path.basename(input_file)}: {', '.join(conversion_reasons)}")
             else:
-                # No cache entry, assume needs processing
+                # No cache entry, needs processing
                 conversion_needed = True
+                conversion_reasons = ['not_cached']
         else:
-            # No database, assume needs processing  
+            # No database, assume needs processing
             conversion_needed = True
-        
+            conversion_reasons = ['no_database']
+
         # Step 3: Verify lock is still ours (critical check)
         if file_lock and not file_lock._verify_our_lock():
             # Someone else took over our lock - abort
@@ -1989,8 +1987,7 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                 # Store probe in database for future use
                 if DATABASE_AVAILABLE and hasattr(transcode_file, 'db') and fingerprint:
                     try:
-                        # We'll determine action below, store with placeholder for now
-                        transcode_file.db.store_probe(fingerprint, probe, action='pending')
+                        transcode_file.db.store_probe(fingerprint, probe)
                         logging.info(f"📦 Cached probe data for future use")
                     except Exception as e:
                         logging.warning(f"Failed to cache probe data: {e}")
@@ -2111,12 +2108,21 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                         break
                 
                 # Enhanced skip logic - only skip if format AND metadata are perfect AND not forcing stereo AND not downgrading resolution
-                if (vcodec == 'h264' and all_aac and input_file.lower().endswith(('.mp4', '.mkv')) and 
-                    not needs_stereo_track and not needs_51_from_71 and not needs_audio_metadata_fix and not has_non_english_audio and 
+                # IMPORTANT: Only skip .mp4 files - always convert .mkv to .mp4 for space savings
+                is_already_mp4 = input_file.lower().endswith('.mp4')
+                if (vcodec == 'h264' and all_aac and is_already_mp4 and
+                    not needs_stereo_track and not needs_51_from_71 and not needs_audio_metadata_fix and not has_non_english_audio and
                     not force_stereo and not needs_resolution_downgrade and not needs_color_metadata_fix and not needs_10bit_conversion):
-                    print(f"Skipping: {input_file} is already H.264/AAC with proper audio and color metadata.")
-                    logging.info(f"Skipping: {input_file} is already H.264/AAC with proper audio and color metadata.")
+                    print(f"Skipping: {input_file} is already H.264/AAC MP4 with proper audio and color metadata.")
+                    logging.info(f"Skipping: {input_file} is already H.264/AAC MP4 with proper audio and color metadata.")
+                    # When running from import.sh (container), still notify Plex about this new import
+                    is_container, _ = detect_container_environment()
+                    if is_container:
+                        processed_files.append(input_file)
                     return
+                elif not is_already_mp4 and vcodec == 'h264' and all_aac:
+                    print(f"Remuxing: {input_file} - converting container from MKV to MP4 (no re-encoding needed).")
+                    logging.info(f"Remuxing: {input_file} - converting container from MKV to MP4 (no re-encoding needed).")
                 elif needs_10bit_conversion:
                     print(f"Transcoding: {input_file} - converting 10-bit to 8-bit to fix pink screen issues.")
                     logging.info(f"Transcoding: {input_file} - converting 10-bit to 8-bit to fix pink screen issues.")
@@ -2149,6 +2155,10 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                 if acodec == 'mp3' and input_file.lower().endswith('.mp3'):
                     print(f"Skipping: {input_file} is already MP3.")
                     logging.info(f"Skipping: {input_file} is already MP3.")
+                    # When running from import.sh (container), still notify Plex about this new import
+                    is_container, _ = detect_container_environment()
+                    if is_container:
+                        processed_files.append(input_file)
                     return
                 
                 print(f"Converting: {input_file} ({acodec}) -> MP3")
@@ -2241,6 +2251,9 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                 if DATABASE_AVAILABLE and hasattr(transcode_file, 'db') and fingerprint:
                     try:
                         action_taken = []
+                        # Track container remux (mkv to mp4)
+                        if input_file.lower().endswith('.mkv') and final_output_file.lower().endswith('.mp4'):
+                            action_taken.append('container_remuxed')
                         if needs_resolution_downgrade:
                             action_taken.append('resolution_downgraded')
                         if needs_stereo_track or force_stereo:
@@ -2268,7 +2281,6 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                         logging.warning(f"Failed to update database after conversion: {e}")
             
                 # Add to batch notification list instead of immediate notification
-                global processed_files
                 processed_files.append(final_output_file)
             
                 # Only remove source file if it's different from final output file
@@ -2412,7 +2424,18 @@ def main():
         logging.info(f"No {media_type_str} files found.")
         print(f"No {media_type_str} files found.")
         sys.exit(0)
-        
+
+    # Clean up stale cache entries for directories we're about to process
+    if DATABASE_AVAILABLE and hasattr(transcode_file, 'db'):
+        directories_to_clean = set(os.path.dirname(f) for f in files)
+        total_stale = 0
+        for directory in directories_to_clean:
+            stale_count = transcode_file.db.cleanup_stale_entries(directory)
+            total_stale += stale_count
+        if total_stale > 0:
+            logging.info(f"🧹 Cleaned up {total_stale} stale cache entries")
+            print(f"🧹 Cleaned up {total_stale} stale cache entries")
+
     media_type_str = args.type if args.type != 'both' else 'media'
     print(f"Found {len(files)} {media_type_str} files to process.")
     
