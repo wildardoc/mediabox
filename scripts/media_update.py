@@ -1825,6 +1825,8 @@ def build_audio_ffmpeg_command(input_file, probe=None):
 
     # Build ffmpeg args for MP3 conversion with high quality settings
     args = [
+        '-map', '0:a',  # Only map audio streams, skip cover art (often corrupted)
+        '-vn',  # Explicitly disable video/cover art output
         '-c:a', 'libmp3lame',
         '-b:a', '320k',
         '-y'  # Overwrite output
@@ -2254,21 +2256,24 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                 if DATABASE_AVAILABLE and hasattr(transcode_file, 'db') and fingerprint:
                     try:
                         action_taken = []
-                        # Track container remux (mkv to mp4)
-                        if input_file.lower().endswith('.mkv') and final_output_file.lower().endswith('.mp4'):
-                            action_taken.append('container_remuxed')
-                        if needs_resolution_downgrade:
-                            action_taken.append('resolution_downgraded')
-                        if needs_stereo_track or force_stereo:
-                            action_taken.append('stereo_created')
-                        if needs_51_from_71:
-                            action_taken.append('5.1_from_7.1')
-                        if needs_audio_metadata_fix:
-                            action_taken.append('metadata_fixed')
-                        if has_non_english_audio:
-                            action_taken.append('non_english_removed')
-                        if not action_taken:
-                            action_taken.append('video_converted')
+                        if is_video:
+                            # Track container remux (mkv to mp4)
+                            if input_file.lower().endswith('.mkv') and final_output_file.lower().endswith('.mp4'):
+                                action_taken.append('container_remuxed')
+                            if needs_resolution_downgrade:
+                                action_taken.append('resolution_downgraded')
+                            if needs_stereo_track or force_stereo:
+                                action_taken.append('stereo_created')
+                            if needs_51_from_71:
+                                action_taken.append('5.1_from_7.1')
+                            if needs_audio_metadata_fix:
+                                action_taken.append('metadata_fixed')
+                            if has_non_english_audio:
+                                action_taken.append('non_english_removed')
+                            if not action_taken:
+                                action_taken.append('video_converted')
+                        else:
+                            action_taken.append('audio_converted')
                     
                         # Update database: pass final_output_file (converted file location)
                         # If input_file will be deleted, original_fingerprint + final_output_file
