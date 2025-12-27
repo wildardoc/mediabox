@@ -2199,9 +2199,12 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
             logging.info(f"Using temporary file: {output_file}")
         logging.info("Command: " + " ".join(cmd))
         try:
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            logging.info("ffmpeg output:\n" + result.stdout)
-            logging.info("ffmpeg errors:\n" + result.stderr)
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            # Decode with error handling for non-UTF8 metadata (e.g., Windows-1252 smart quotes)
+            stdout_text = result.stdout.decode('utf-8', errors='replace')
+            stderr_text = result.stderr.decode('utf-8', errors='replace')
+            logging.info("ffmpeg output:\n" + stdout_text)
+            logging.info("ffmpeg errors:\n" + stderr_text)
             if result.returncode == 0:
                 unfinished_output_file = None
             
