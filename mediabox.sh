@@ -1004,10 +1004,51 @@ show_troubleshooting() {
     echo ""
 }
 
+# Prompt to add shell alias for low-priority batch media conversion
+setup_media_update_alias() {
+    echo ""
+    echo "📝 Shell Alias Setup"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo ""
+    echo "For manual batch media conversions, you can add a shell alias that"
+    echo "automatically runs media_update.py with low priority (nice/ionice)."
+    echo ""
+    echo "This ensures batch conversions don't interfere with Plex or other services."
+    echo ""
+    echo "Alias: media_update_batch"
+    echo "Command: nice -n 19 ionice -c 2 -n 7 python3 $SCRIPTS_DIR/media_update.py"
+    echo ""
+    read -r -p "Add this alias to your ~/.bashrc? (y/n): " add_alias
+
+    if [[ "$add_alias" == "y" || "$add_alias" == "Y" ]]; then
+        local bashrc="$HOME/.bashrc"
+
+        # Check if alias already exists
+        if grep -q "alias media_update_batch=" "$bashrc" 2>/dev/null; then
+            echo "⚠️  Alias already exists in ~/.bashrc - skipping"
+        else
+            # Add alias with helpful comment
+            echo "" >> "$bashrc"
+            echo "# Mediabox - Low priority batch media conversion" >> "$bashrc"
+            echo "alias media_update_batch='nice -n 19 ionice -c 2 -n 7 python3 $SCRIPTS_DIR/media_update.py'" >> "$bashrc"
+            echo "✅ Alias added to ~/.bashrc"
+            echo ""
+            echo "Usage: media_update_batch --dir /path/to/media --type video"
+            echo "Note: Reload your shell or run 'source ~/.bashrc' to activate"
+        fi
+    else
+        echo "⏭️  Skipping alias setup"
+        echo "You can manually add it later with:"
+        echo "  alias media_update_batch='nice -n 19 ionice -c 2 -n 7 python3 $SCRIPTS_DIR/media_update.py'"
+    fi
+    echo ""
+}
+
 # Run validation and show configuration
 validate_installation
 show_webhook_configuration
 show_troubleshooting
+setup_media_update_alias
 
 echo ""
 echo "Mediabox setup completed successfully!"
@@ -1022,7 +1063,8 @@ echo "Manual operations:"
 echo "  - Log rotation: cd $SCRIPTS_DIR && ./rotate-logs.sh"
 echo "  - Media cleanup: cd $SCRIPTS_DIR && python3 remove_files.py"
 echo "  - Conversion cleanup: cd $SCRIPTS_DIR && ./cleanup-conversions.sh --live"
-echo "  - Media conversion: cd $SCRIPTS_DIR && python3 media_update.py --dir [path] --type [video|audio|both]"
+echo "  - Batch conversion: media_update_batch --dir [path] --type [video|audio|both]"
+echo "    (Or directly: cd $SCRIPTS_DIR && python3 media_update.py --dir [path] --type [video|audio|both])"
 echo ""
 echo "Log locations:"
 echo "  - Webhook activity: $SCRIPTS_DIR/import_YYYYMMDD.log"

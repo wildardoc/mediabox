@@ -478,7 +478,7 @@ execute_conversion() {
         return 1
     }
     
-    if "$venv_python" "$MEDIA_UPDATE_SCRIPT" "${cmd_args[@]}"; then
+    if nice -n 10 ionice -c 2 -n 7 "$venv_python" "$MEDIA_UPDATE_SCRIPT" "${cmd_args[@]}"; then
         local exit_code=$?
         log_message "INFO" "Media conversion completed successfully for: $title"
         
