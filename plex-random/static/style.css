@@ -1,0 +1,295 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    color: #fff;
+    min-height: 100vh;
+    margin: 0;
+    padding: 20px;
+}
+
+.container {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+header h1 {
+    color: #e5a00d;
+    font-size: 1.8rem;
+    margin: 0;
+}
+
+/* Client Selection */
+.client-section {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.client-section label {
+    font-weight: 600;
+}
+
+.client-section select {
+    flex: 1;
+    min-width: 200px;
+}
+
+/* Tabs */
+.tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.tab {
+    flex: 1;
+    padding: 15px;
+    border: none;
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    font-size: 1rem;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.tab:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.tab.active {
+    background: #e5a00d;
+    color: #1a1a2e;
+    font-weight: 600;
+}
+
+/* Tab Content */
+.tab-content {
+    display: none;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 20px;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Filters */
+.filters {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.filter-group.checkbox {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+}
+
+.filter-group label {
+    font-size: 0.9rem;
+    color: #ccc;
+}
+
+.filter-group.checkbox label {
+    font-size: 1rem;
+    color: #fff;
+    cursor: pointer;
+}
+
+/* Form Elements */
+select, input[type="text"] {
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.3);
+    color: #fff;
+    font-size: 1rem;
+}
+
+select:focus, input[type="text"]:focus {
+    outline: none;
+    border-color: #e5a00d;
+}
+
+select option {
+    background: #1a1a2e;
+    color: #fff;
+}
+
+input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    accent-color: #e5a00d;
+}
+
+/* Buttons */
+.btn-play {
+    width: 100%;
+    padding: 18px;
+    border: none;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #e5a00d 0%, #cc8400 100%);
+    color: #1a1a2e;
+    font-size: 1.2rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.btn-play:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(229, 160, 13, 0.4);
+}
+
+.btn-play:active {
+    transform: translateY(0);
+}
+
+.btn-play:disabled {
+    background: #666;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.btn-small {
+    padding: 10px 15px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-small:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Results */
+.result {
+    margin-top: 20px;
+    background: rgba(229, 160, 13, 0.2);
+    border: 1px solid #e5a00d;
+    border-radius: 12px;
+    padding: 20px;
+}
+
+.result h3 {
+    margin: 0 0 15px 0;
+    color: #e5a00d;
+}
+
+.result-content p {
+    margin: 5px 0;
+    line-height: 1.5;
+}
+
+.result-content .title {
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.result-content .meta {
+    color: #ccc;
+    font-size: 0.9rem;
+}
+
+.result-content .summary {
+    margin-top: 10px;
+    font-size: 0.9rem;
+    color: #aaa;
+}
+
+.fallback-msg {
+    color: #ffc107;
+    font-size: 0.9rem;
+    margin: 10px 0;
+}
+
+.plex-link {
+    display: inline-block;
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #e5a00d 0%, #cc8400 100%);
+    color: #1a1a2e;
+    text-decoration: none;
+    border-radius: 8px;
+    font-weight: 600;
+    margin: 10px 0;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.plex-link:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(229, 160, 13, 0.4);
+}
+
+/* Error */
+.error {
+    margin-top: 20px;
+    background: rgba(233, 69, 96, 0.2);
+    border: 1px solid #e94560;
+    border-radius: 12px;
+    padding: 20px;
+    color: #ff6b6b;
+}
+
+/* Hidden */
+.hidden {
+    display: none !important;
+}
+
+/* Loading state */
+.loading {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+    body {
+        padding: 10px;
+    }
+
+    header h1 {
+        font-size: 1.4rem;
+    }
+
+    .client-section {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .client-section select {
+        min-width: 100%;
+    }
+
+    .tabs {
+        flex-direction: column;
+    }
+}

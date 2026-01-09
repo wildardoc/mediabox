@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plex Random Player</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Plex Random Player</h1>
+        </header>
+
+        <div class="client-section">
+            <label for="client-select">Play on:</label>
+            <select id="client-select">
+                <option value="">Select a device...</option>
+                {% for client in clients %}
+                <option value="{{ client.identifier }}">{{ client.name }} ({{ client.product }})</option>
+                {% endfor %}
+            </select>
+            <button id="refresh-clients" class="btn-small" title="Refresh clients">Refresh</button>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" data-tab="movies">Movies</button>
+            <button class="tab" data-tab="tv">TV Shows</button>
+        </div>
+
+        <!-- Movies Tab -->
+        <div id="movies-tab" class="tab-content active">
+            <div class="filters">
+                <div class="filter-group">
+                    <label for="movie-library">Library:</label>
+                    <select id="movie-library">
+                        {% for lib in libraries.movies %}
+                        <option value="{{ lib.key }}">{{ lib.title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="movie-genre">Genre:</label>
+                    <select id="movie-genre">
+                        <option value="">Any genre</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="movie-rating">Content Rating:</label>
+                    <select id="movie-rating">
+                        <option value="">Any rating</option>
+                    </select>
+                </div>
+
+                <div class="filter-group checkbox">
+                    <input type="checkbox" id="movie-unwatched">
+                    <label for="movie-unwatched">Unwatched only</label>
+                </div>
+            </div>
+
+            <button id="play-movie" class="btn-play">Play Random Movie</button>
+        </div>
+
+        <!-- TV Shows Tab -->
+        <div id="tv-tab" class="tab-content">
+            <div class="filters">
+                <div class="filter-group">
+                    <label for="tv-library">Library:</label>
+                    <select id="tv-library">
+                        {% for lib in libraries.shows %}
+                        <option value="{{ lib.key }}">{{ lib.title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="tv-show">Show:</label>
+                    <select id="tv-show">
+                        <option value="">Any show</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="tv-genre">Genre:</label>
+                    <select id="tv-genre">
+                        <option value="">Any genre</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="tv-rating">Content Rating:</label>
+                    <select id="tv-rating">
+                        <option value="">Any rating</option>
+                    </select>
+                </div>
+
+                <div class="filter-group checkbox">
+                    <input type="checkbox" id="tv-unwatched">
+                    <label for="tv-unwatched">Unwatched only</label>
+                </div>
+            </div>
+
+            <button id="play-episode" class="btn-play">Play Random Episode</button>
+        </div>
+
+        <div id="result" class="result hidden">
+            <h3>Now Playing</h3>
+            <div id="result-content"></div>
+        </div>
+
+        <div id="error" class="error hidden"></div>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

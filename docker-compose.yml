@@ -358,6 +358,30 @@ services:
       start_period: 40s
 
   # ----------------------------------------
+  # PLEX-RANDOM - Random Movie/TV Player
+  # ----------------------------------------
+  plex-random:
+    build: ./plex-random
+    container_name: plex-random
+    restart: unless-stopped
+    profiles: ["plex", "full"]
+    network_mode: "bridge"
+    ports:
+        - '${IP_ADDRESS}:5050:5050'
+    environment:
+        - PLEX_URL=${PLEX_URL}
+        - PLEX_TOKEN=${PLEX_TOKEN}
+        - TZ=${TZ}
+    depends_on:
+        - plex
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5050/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ----------------------------------------
   # TAUTULLI - Plex Usage Statistics
   # ----------------------------------------
   tautulli:
