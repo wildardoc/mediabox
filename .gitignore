@@ -6,8 +6,8 @@
 # ------------------------------------------------------------------------------
 # MEDIABOX RUNTIME FILES
 # ------------------------------------------------------------------------------
-.env                            # Environment variables (contains secrets)
-content/                        # User media content
+.env
+content/
 
 # Container persistent data
 delugevpn/
@@ -37,7 +37,7 @@ ovpn/
 # ------------------------------------------------------------------------------
 # DEVELOPMENT & BUILD FILES  
 # ------------------------------------------------------------------------------
-**/.venv/                       # Python virtual environment (any location)
+**/.venv/
 **/venv/
 **/env/
 **/ENV/
@@ -67,8 +67,8 @@ wheels/
 *.egg
 
 # IDE and editor files
-.idea/                          # PyCharm
-.vscode/                        # VS Code
+.idea/
+.vscode/
 
 # ------------------------------------------------------------------------------
 # LOG FILES & RUNTIME STATS
@@ -100,7 +100,7 @@ $RECYCLE.BIN/
 # ------------------------------------------------------------------------------
 # LOCAL OVERRIDES
 # ------------------------------------------------------------------------------
-docker-compose.override.yml     # Local customizations (extra volumes, etc.)
+docker-compose.override.yml 
 
 # ------------------------------------------------------------------------------
 # SPECIFIC FILE IGNORES
@@ -109,7 +109,6 @@ docker-compose.override.yml     # Local customizations (extra volumes, etc.)
 .env
 scripts/.venv/
 scripts/mediabox_config.json
-conversion_stats.json              # Smart bulk converter runtime statistics (any location)
 
 # Backup and test files
 archive/backup/
