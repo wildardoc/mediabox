@@ -98,6 +98,11 @@ $RECYCLE.BIN/
 .LSOverride
 
 # ------------------------------------------------------------------------------
+# LOCAL OVERRIDES
+# ------------------------------------------------------------------------------
+docker-compose.override.yml     # Local customizations (extra volumes, etc.)
+
+# ------------------------------------------------------------------------------
 # SPECIFIC FILE IGNORES
 # ------------------------------------------------------------------------------
 # These specific paths need explicit entries due to gitignore pattern limitations
