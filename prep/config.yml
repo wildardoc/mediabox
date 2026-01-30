@@ -87,6 +87,13 @@ services:
         tagstyle: "is -info"
         url: "http://locip:9696"
         target: "_blank"
+      - name: "FlareSolverr"
+        icon: "fas fa-shield-alt"
+        subtitle: "Cloudflare bypass proxy"
+        tag: "get"
+        tagstyle: "is -info"
+        url: "http://locip:8191"
+        target: "_blank"
   - name: "Manage It"
     icon: "fas fa-edit"
     items:

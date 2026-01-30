@@ -67,6 +67,87 @@ if site_packages not in sys.path:
 os.environ["VIRTUAL_ENV"] = venv_path
 os.environ["PATH"] = os.path.join(venv_path, "bin") + os.pathsep + os.environ.get("PATH", "")
 
+# Sonarr protection: query Sonarr manual-import and skip those paths when deleting downloads.
+# This maps container paths (e.g. /data/completed) to host download path (DLDIR).
+SONARR_PROTECTED_HOST_PATHS = set()
+
+def _load_dldir_from_env(env_file_path):
+    try:
+        if os.path.exists(env_file_path):
+            with open(env_file_path, 'r') as ef:
+                for line in ef:
+                    line=line.strip()
+                    if line.startswith('DLDIR='):
+                        return line.split('=',1)[1].strip().strip('"')
+    except Exception:
+        pass
+    return None
+
+
+def _build_sonarr_protected_paths():
+    # Attempt to read Sonarr API key from host-mounted sonarr config (./sonarr/config.xml)
+    try:
+        script_dir = os.path.dirname(__file__)
+        # env file from config or fallback
+        env_file = config.get('env_file') if isinstance(config, dict) and config.get('env_file') else os.path.join(script_dir, '..', '.env')
+        host_dldir = _load_dldir_from_env(env_file) or (DOWNLOAD_DIRS[0] if DOWNLOAD_DIRS else None)
+        if not host_dldir:
+            return set()
+
+        sonarr_config_path = os.path.join(os.path.dirname(__file__), '..', 'sonarr', 'config.xml')
+        sonarr_config_path = os.path.normpath(sonarr_config_path)
+        if not os.path.exists(sonarr_config_path):
+            return set()
+
+        import xml.etree.ElementTree as ET, urllib.request, urllib.error, json as _json
+        tree = ET.parse(sonarr_config_path)
+        root = tree.getroot()
+        apikey_elem = root.find('ApiKey')
+        if apikey_elem is None or not apikey_elem.text:
+            return set()
+        api_key = apikey_elem.text.strip()
+
+        protected = set()
+        # Query common Sonarr download folders exposed to container
+        for folder in ('/data/completed', '/data/incomplete'):
+            try:
+                url = f'http://127.0.0.1:8989/api/v3/manualimport?folder={urllib.request.quote(folder)}'
+                req = urllib.request.Request(url, headers={"X-Api-Key": api_key})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    raw = resp.read()
+                    items = _json.loads(raw.decode('utf-8') or '[]')
+                    for it in items:
+                        p = it.get('path') or it.get('relativePath') or ''
+                        if p.startswith('/data') and host_dldir:
+                            host_p = os.path.normpath(p.replace('/data', host_dldir, 1))
+                            protected.add(host_p)
+            except Exception:
+                # don't fail hard if Sonarr isn't reachable
+                continue
+        return protected
+    except Exception:
+        return set()
+
+# Populate protected set once at script start
+try:
+    SONARR_PROTECTED_HOST_PATHS = _build_sonarr_protected_paths()
+except Exception:
+    SONARR_PROTECTED_HOST_PATHS = set()
+
+
+def is_protected_by_sonarr(path):
+    try:
+        norm = os.path.normpath(path)
+        if norm in SONARR_PROTECTED_HOST_PATHS:
+            return True
+        for p in SONARR_PROTECTED_HOST_PATHS:
+            if norm.startswith(p + os.sep):
+                return True
+    except Exception:
+        pass
+    return False
+
+
 import time
 import ffmpeg
 import logging
@@ -159,8 +240,10 @@ def should_delete_tv(file_path, library_tv_dir, dry_run=False):
     series, season, episode = parse_tv_filename(filename)
     if not series:
         # Not a TV episode, fallback to age check
-        mtime = os.path.getmtime(file_path)
-        age_days = (time.time() - mtime) / (24 * 3600)
+        # Use ctime (change time) instead of mtime because downloaders like NZBget
+        # preserve the original file's modification time from metadata
+        ctime = os.path.getctime(file_path)
+        age_days = (time.time() - ctime) / (24 * 3600)
         if age_days > DAYS_OLD:
             print(f"{file_path} is old and not matched. {'[DRY RUN]' if dry_run else 'Deleting.'}")
             if not dry_run:
@@ -182,8 +265,10 @@ def should_delete_tv(file_path, library_tv_dir, dry_run=False):
             return False
     else:
         # No match in library, fallback to age check
-        mtime = os.path.getmtime(file_path)
-        age_days = (time.time() - mtime) / (24 * 3600)
+        # Use ctime (change time) instead of mtime because downloaders like NZBget
+        # preserve the original file's modification time from metadata
+        ctime = os.path.getctime(file_path)
+        age_days = (time.time() - ctime) / (24 * 3600)
         if age_days > DAYS_OLD:
             print(f"{file_path} is old and not matched. {'[DRY RUN]' if dry_run else 'Deleting.'}")
             if not dry_run:
@@ -257,8 +342,10 @@ def should_delete_movie(file_path, library_movie_dir, dry_run=False):
     movie_title = parse_movie_filename(filename)
     if not movie_title:
         # Not a movie, fallback to age check
-        mtime = os.path.getmtime(file_path)
-        age_days = (time.time() - mtime) / (24 * 3600)
+        # Use ctime (change time) instead of mtime because downloaders like NZBget
+        # preserve the original file's modification time from metadata
+        ctime = os.path.getctime(file_path)
+        age_days = (time.time() - ctime) / (24 * 3600)
         if age_days > DAYS_OLD:
             print(f"{file_path} is old and not matched. {'[DRY RUN]' if dry_run else 'Deleting.'}")
             if not dry_run:
@@ -279,8 +366,10 @@ def should_delete_movie(file_path, library_movie_dir, dry_run=False):
             print(f"{file_path} is higher resolution than library copy. Manual intervention needed.")
             return False
     else:
-        mtime = os.path.getmtime(file_path)
-        age_days = (time.time() - mtime) / (24 * 3600)
+        # Use ctime (change time) instead of mtime because downloaders like NZBget
+        # preserve the original file's modification time from metadata
+        ctime = os.path.getctime(file_path)
+        age_days = (time.time() - ctime) / (24 * 3600)
         if age_days > DAYS_OLD:
             print(f"{file_path} is old and not matched. {'[DRY RUN]' if dry_run else 'Deleting.'}")
             if not dry_run:
@@ -293,8 +382,10 @@ def should_delete_music(file_path, library_music_dir, dry_run=False):
     artist, album, track = parse_music_filename(filename)
     if not artist:
         # Not a music file, fallback to age check
-        mtime = os.path.getmtime(file_path)
-        age_days = (time.time() - mtime) / (24 * 3600)
+        # Use ctime (change time) instead of mtime because downloaders like NZBget
+        # preserve the original file's modification time from metadata
+        ctime = os.path.getctime(file_path)
+        age_days = (time.time() - ctime) / (24 * 3600)
         if age_days > DAYS_OLD:
             print(f"{file_path} is old and not matched. {'[DRY RUN]' if dry_run else 'Deleting.'}")
             if not dry_run:
@@ -317,8 +408,10 @@ def should_delete_music(file_path, library_music_dir, dry_run=False):
                 return False
         else:
             # If bitrate info is missing, fallback to age-based deletion
-            mtime = os.path.getmtime(file_path)
-            age_days = (time.time() - mtime) / (24 * 3600)
+            # Use ctime (change time) instead of mtime because downloaders like NZBget
+            # preserve the original file's modification time from metadata
+            ctime = os.path.getctime(file_path)
+            age_days = (time.time() - ctime) / (24 * 3600)
             if age_days > DAYS_OLD:
                 print(f"{file_path} is old and not matched (bitrate unknown). {'[DRY RUN]' if dry_run else 'Deleting.'}")
                 if not dry_run:
@@ -327,8 +420,10 @@ def should_delete_music(file_path, library_music_dir, dry_run=False):
             return False
     else:
         # No match in library, fallback to age check
-        mtime = os.path.getmtime(file_path)
-        age_days = (time.time() - mtime) / (24 * 3600)
+        # Use ctime (change time) instead of mtime because downloaders like NZBget
+        # preserve the original file's modification time from metadata
+        ctime = os.path.getctime(file_path)
+        age_days = (time.time() - ctime) / (24 * 3600)
         if age_days > DAYS_OLD:
             print(f"{file_path} is old and not matched. {'[DRY RUN]' if dry_run else 'Deleting.'}")
             if not dry_run:
@@ -360,8 +455,10 @@ def main():
                     if should_delete_music(file_path, music_library_dir, dry_run=args.dry_run):
                         continue
                     # If not matched, fallback to age-based deletion
-                    mtime = os.path.getmtime(file_path)
-                    age_days = (time.time() - mtime) / (24 * 3600)
+                    # Use ctime (change time) instead of mtime because downloaders like NZBget
+                    # preserve the original file's modification time from metadata
+                    ctime = os.path.getctime(file_path)
+                    age_days = (time.time() - ctime) / (24 * 3600)
                     if age_days > DAYS_OLD:
                         print(f"{file_path} is old and not matched. {'[DRY RUN]' if args.dry_run else 'Deleting.'}")
                         if not args.dry_run:

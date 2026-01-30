@@ -473,7 +473,6 @@ fi
 # Create application directories with error checking
 echo "📁 Creating application directories..."
 create_directory "delugevpn" "$USE_ZFS_DATASETS"
-
 create_directory "historical/env_files"
 create_directory "homer" "$USE_ZFS_DATASETS"
 create_directory "lidarr" "$USE_ZFS_DATASETS"
@@ -750,6 +749,104 @@ fi
 # Create Port Mapping file
 for i in $(docker ps --format {{.Names}} | sort); do printf "\n === $i Ports ===\n" && docker port "$i"; done > homer/ports.txt
 
+# Configure Prowlarr to use FlareSolverr
+configure_prowlarr_flaresolverr() {
+    echo "⚙️  Configuring Prowlarr to use FlareSolverr..."
+
+    local max_attempts=30
+    local attempt=1
+
+    # Wait for Prowlarr config to exist
+    echo "   Waiting for Prowlarr to initialize..."
+    while [ ! -f prowlarr/config.xml ] && [ $attempt -le $max_attempts ]; do
+        sleep 2
+        ((attempt++))
+    done
+
+    if [ ! -f prowlarr/config.xml ]; then
+        echo "   ⚠️  Prowlarr config not found after ${max_attempts} attempts"
+        echo "   💡 You can configure FlareSolverr manually in Prowlarr:"
+        echo "      Settings → Indexers → Add → FlareSolverr"
+        echo "      Host: http://${locip}:8191"
+        return 1
+    fi
+
+    # Extract API key from config
+    local api_key
+    api_key=$(grep -oP '(?<=<ApiKey>)[^<]+' prowlarr/config.xml 2>/dev/null)
+
+    if [ -z "$api_key" ]; then
+        echo "   ⚠️  Could not extract Prowlarr API key"
+        echo "   💡 Configure FlareSolverr manually in Prowlarr"
+        return 1
+    fi
+
+    # Wait for Prowlarr API to be ready
+    echo "   Waiting for Prowlarr API to be ready..."
+    attempt=1
+    while ! curl -s "http://localhost:9696/api/v1/system/status" -H "X-Api-Key: $api_key" >/dev/null 2>&1 && [ $attempt -le $max_attempts ]; do
+        sleep 2
+        ((attempt++))
+    done
+
+    if [ $attempt -gt $max_attempts ]; then
+        echo "   ⚠️  Prowlarr API not responding"
+        return 1
+    fi
+
+    # Check if FlareSolverr is already configured
+    local existing
+    existing=$(curl -s "http://localhost:9696/api/v1/indexerproxy" -H "X-Api-Key: $api_key" 2>/dev/null)
+
+    if echo "$existing" | grep -q "FlareSolverr"; then
+        echo "   ✅ FlareSolverr already configured in Prowlarr"
+        return 0
+    fi
+
+    # First create a tag for FlareSolverr
+    local tag_response
+    tag_response=$(curl -s -X POST "http://${locip}:9696/api/v1/tag" \
+        -H "X-Api-Key: $api_key" \
+        -H "Content-Type: application/json" \
+        -d '{"label":"flaresolverr"}' 2>/dev/null)
+
+    local tag_id
+    tag_id=$(echo "$tag_response" | grep -oP '"id":\s*\K\d+' | head -1)
+
+    if [ -z "$tag_id" ]; then
+        # Tag might already exist, try to get it
+        tag_id=$(curl -s "http://${locip}:9696/api/v1/tag" -H "X-Api-Key: $api_key" 2>/dev/null | grep -oP '"id":\s*(\d+).*?"label":\s*"flaresolverr"' | grep -oP '"id":\s*\K\d+' | head -1)
+    fi
+
+    # Build tags array
+    local tags_json="[]"
+    if [ -n "$tag_id" ]; then
+        tags_json="[$tag_id]"
+    fi
+
+    # Add FlareSolverr via API
+    local response
+    response=$(curl -s -X POST "http://${locip}:9696/api/v1/indexerproxy" \
+        -H "X-Api-Key: $api_key" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"FlareSolverr\",\"implementation\":\"FlareSolverr\",\"implementationName\":\"FlareSolverr\",\"configContract\":\"FlareSolverrSettings\",\"fields\":[{\"name\":\"host\",\"value\":\"http://${locip}:8191\"},{\"name\":\"requestTimeout\",\"value\":60}],\"tags\":$tags_json}" 2>/dev/null)
+
+    if echo "$response" | grep -q '"id"'; then
+        echo "   ✅ FlareSolverr configured in Prowlarr"
+        echo "      Host: http://${locip}:8191"
+        return 0
+    else
+        echo "   ⚠️  Failed to configure FlareSolverr automatically"
+        echo "   💡 Configure manually in Prowlarr:"
+        echo "      Settings → Indexers → Add → FlareSolverr"
+        echo "      Host: http://${locip}:8191"
+        return 1
+    fi
+}
+
+# Configure FlareSolverr in Prowlarr
+configure_prowlarr_flaresolverr
+
 # Setup Plex Integration (if enabled)
 if [ "$plex_enabled" == "true" ]; then
     printf "\\n🎬 Setting up Plex integration...\\n"
@@ -926,7 +1023,7 @@ validate_installation() {
     echo "🔍 INSTALLATION VALIDATION"
     
     # Check containers are running
-    local containers=("sonarr" "radarr" "lidarr" "plex" "homer" "portainer")
+    local containers=("sonarr" "radarr" "lidarr" "plex" "homer" "portainer" "flaresolverr" "prowlarr")
     echo "Checking container status..."
     for container in "${containers[@]}"; do
         if docker ps --format "table {{.Names}}" | grep -q "^$container$"; then
@@ -996,6 +1093,15 @@ show_troubleshooting() {
     echo ""
     echo "To test webhook integration manually:"
     echo "   docker exec sonarr bash -c 'export sonarr_eventtype=Test && /scripts/import.sh'"
+    echo ""
+    echo "If FlareSolverr is not working:"
+    echo "   # Check if FlareSolverr is running:"
+    echo "   curl http://localhost:8191/health"
+    echo "   # Check FlareSolverr logs:"
+    echo "   docker logs flaresolverr"
+    echo "   # Verify Prowlarr configuration:"
+    echo "   # Settings → Indexers → Indexer Proxies → FlareSolverr should be listed"
+    echo "   # Assign 'flaresolverr' tag to indexers that need Cloudflare bypass"
     echo ""
     echo "View logs for debugging:"
     echo "   tail -f scripts/import_\$(date +%Y%m%d).log"

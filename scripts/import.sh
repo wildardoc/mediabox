@@ -461,7 +461,10 @@ execute_conversion() {
             return 1
             ;;
     esac
-    
+
+    # Always force stereo creation when called from import.sh (webhook processing)
+    cmd_args+=(--force-stereo)
+
     # Log conversion parameters
     log_message "INFO" "Conversion parameters:"
     log_message "INFO" "  Media type: $media_type"

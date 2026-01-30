@@ -68,10 +68,56 @@ When adding libraries to PLEX use these settings:<br />
 <li>Username: daemonun<br />
 <li>Password: daemonpass<br />
 </ul>
-<b><u>Maintainerr:</u></b><br />
+<b><u>Maintainerr (Media Cleanup):</u></b><br />
+Maintainerr automatically removes unwatched media to free up space while protecting content you want to keep.<br />
+<br />
+<b>Initial Setup:</b>
 <ul>
-<li>Manual Setup using APIs from arr stack<br />
+<li>Open Maintainerr: <a href="http://locip:6246">http://locip:6246</a></li>
+<li>Connect to Plex (Settings → Plex → Add your server)</li>
+<li>Optionally connect Overseerr and Tautulli for enhanced data</li>
 </ul>
+<b>Creating Exclusion Collections (Recommended First Step):</b>
+<ol>
+<li>In Plex, go to your Movies library</li>
+<li>Click Collections → Create Collection → Name it "Never Delete"</li>
+<li>Add movies you want to keep forever to this collection</li>
+<li>Repeat for TV Shows library (entire series can be added - new episodes auto-included)</li>
+</ol>
+<b>Example Rules:</b>
+<ul>
+<li><b>Movies:</b> Delete unwatched movies older than 90 days, EXCEPT those in "Never Delete" collection</li>
+<li><b>TV Shows:</b> Keep only the latest season, delete older seasons, EXCEPT shows in "Never Delete" collection</li>
+</ul>
+<b>Creating a Rule with Exclusions:</b>
+<ol>
+<li>Go to Rules → Create Rule</li>
+<li>Add conditions for what to delete (e.g., "Days since added" > 90, "Times played" = 0)</li>
+<li>Add exclusion: "Collection" → "is not" → "Never Delete"</li>
+<li>Set action to "Delete from Plex" or "Delete from Disk"</li>
+<li>Enable the rule and set a schedule</li>
+</ol>
+<b>Tips:</b>
+<ul>
+<li>Start with rules in "dry run" mode to preview what would be deleted</li>
+<li>Use Plex labels (e.g., "keep") as an alternative to collections</li>
+<li>Adding an entire TV series to a collection protects all current and future episodes</li>
+</ul>
+<b><u>FlareSolverr (Cloudflare Bypass):</u></b><br />
+FlareSolverr is automatically configured in Prowlarr during setup.<br />
+If you need to configure it manually:<br />
+<ul>
+<li>Open Prowlarr: <a href="http://locip:9696">http://locip:9696</a><br />
+<li>Go to Settings → Indexers<br />
+<li>Click the + button under "Indexer Proxies"<br />
+<li>Select "FlareSolverr"<br />
+<li>Enter Host: <code>http://locip:8191</code><br />
+<li>Request Timeout: 60 seconds<br />
+<li>Click Save<br />
+</ul>
+Once configured, assign the <code>flaresolverr</code> tag to any indexers that require Cloudflare bypass.<br />
+To verify FlareSolverr is running: <a href="http://locip:8191">http://locip:8191</a><br />
+<br />
 <h3>Container Updates</h3>
 <h1>Troubleshooting</h1>
 If you are having issues with Mediabox or any of your continers please take look at the settings being used.<br />
