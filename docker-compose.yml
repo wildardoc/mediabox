@@ -1,8 +1,6 @@
-##
 ## -------------------------
-## |   M E D I A B O X     |
+## | M E D I A B O X |
 ## -------------------------
-##
 ##
 ## Configuration variables for this file are taken from the .env file
 ##
@@ -21,41 +19,41 @@ services:
     privileged: true
     network_mode: "bridge"
     ports:
-        - '${IP_ADDRESS}:8112:8112'
-        - '${IP_ADDRESS}:8118:8118'
-        - '${IP_ADDRESS}:9118:9118'
-        - '${IP_ADDRESS}:58846:58846'
-        - '${IP_ADDRESS}:58946:58946'
-        - '${IP_ADDRESS}:58946:58946/udp'
+      - '${IP_ADDRESS}:8112:8112'
+      - '${IP_ADDRESS}:8118:8118'
+      - '${IP_ADDRESS}:9118:9118'
+      - '${IP_ADDRESS}:58846:58846'
+      - '${IP_ADDRESS}:58946:58946'
+      - '${IP_ADDRESS}:58946:58946/udp'
     sysctls:
-        - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv4.conf.all.src_valid_mark=1
     environment:
-        - VPN_ENABLED=yes
-        - VPN_USER=${PIAUNAME}
-        - VPN_PASS=${PIAPASS}
-        - VPN_PROV=pia
-        - VPN_CLIENT=wireguard
-        - ENABLE_STARTUP_SCRIPTS=no
-        - ENABLE_PRIVOXY=yes
-        - STRICT_PORT_FORWARD=yes
-        - USERSPACE_WIREGUARD=no
-        - ENABLE_SOCKS=yes
-        - SOCKS_USER=admin
-        - SOCKS_PASS=socks
-        - LAN_NETWORK=${CIDR_ADDRESS}
-        - NAME_SERVERS=84.200.69.80,37.235.1.174,1.1.1.1,37.235.1.177,84.200.70.40,1.0.0.1
-        - DELUGE_DAEMON_LOG_LEVEL=info
-        - DELUGE_WEB_LOG_LEVEL=info
-        - DELUGE_ENABLE_WEBUI_PASSWORD=yes
-        - VPN_INPUT_PORTS=1234
-        - VPN_OUTPUT_PORTS=5678
-        - DEBUG=false
-        - PUID=${PUID}
-        - TZ=${TZ}
-        - PGID=${PGID}
+      - VPN_ENABLED=yes
+      - VPN_USER=${PIAUNAME}
+      - VPN_PASS=${PIAPASS}
+      - VPN_PROV=pia
+      - VPN_CLIENT=wireguard
+      - ENABLE_STARTUP_SCRIPTS=no
+      - ENABLE_PRIVOXY=yes
+      - STRICT_PORT_FORWARD=yes
+      - USERSPACE_WIREGUARD=no
+      - ENABLE_SOCKS=yes
+      - SOCKS_USER=admin
+      - SOCKS_PASS=socks
+      - LAN_NETWORK=${CIDR_ADDRESS}
+      - NAME_SERVERS=84.200.69.80,37.235.1.174,1.1.1.1,37.235.1.177,84.200.70.40,1.0.0.1
+      - DELUGE_DAEMON_LOG_LEVEL=info
+      - DELUGE_WEB_LOG_LEVEL=info
+      - DELUGE_ENABLE_WEBUI_PASSWORD=yes
+      - VPN_INPUT_PORTS=1234
+      - VPN_OUTPUT_PORTS=5678
+      - DEBUG=false
+      - PUID=${PUID}
+      - TZ=${TZ}
+      - PGID=${PGID}
     volumes:
-        - '${DLDIR}:/data'
-        - './delugevpn/config:/config'
+      - '${DLDIR}:/data'
+      - './delugevpn/config:/config'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8112"]
       interval: 30s
@@ -73,12 +71,12 @@ services:
     profiles: ["core", "full"]
     network_mode: "bridge"
     ports:
-        - '${IP_ADDRESS}:80:8080'
+      - '${IP_ADDRESS}:80:8080'
     environment:
-        - UID=${PUID}
-        - GID=${PGID}
+      - UID=${PUID}
+      - GID=${PGID}
     volumes:
-        - './homer:/www/assets'
+      - './homer:/www/assets'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080"]
       interval: 30s
@@ -96,28 +94,28 @@ services:
     profiles: ["music", "full"]
     network_mode: "bridge"
     ports:
-        - '${IP_ADDRESS}:8686:8686'
+      - '${IP_ADDRESS}:8686:8686'
     devices:
-        - /dev/dri:/dev/dri
+      - /dev/dri:/dev/dri
     environment:
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - TZ=${TZ}
-        - DOCKER_MODS=linuxserver/mods:universal-package-install
-        - INSTALL_PACKAGES=python3|py3-pip|ffmpeg
-        - TVDIR=${TVDIR}
-        - MOVIEDIR=${MOVIEDIR}
-        - MUSICDIR=${MUSICDIR}
-        - MISCDIR=${MISCDIR}
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - DOCKER_MODS=linuxserver/mods:universal-package-install
+      - INSTALL_PACKAGES=python3|py3-pip|ffmpeg
+      - TVDIR=${TVDIR}
+      - MOVIEDIR=${MOVIEDIR}
+      - MUSICDIR=${MUSICDIR}
+      - MISCDIR=${MISCDIR}
     volumes:
-        - './lidarr:/config'
-        - '${DLDIR}/completed:/data/completed'
-        - '${DLDIR}/incomplete:/data/incomplete'
-        - '${MUSICDIR}:/music'
-        - '/etc/localtime:/etc/localtime:ro'
-        - './scripts:/scripts'
-        - './scripts/install-python-packages.sh:/custom-cont-init.d/install-python-packages'
-        - '.env:/.env'
+      - './lidarr:/config'
+      - '${DLDIR}/completed:/data/completed'
+      - '${DLDIR}/incomplete:/data/incomplete'
+      - '${MUSICDIR}:/music'
+      - '/etc/localtime:/etc/localtime:ro'
+      - './scripts:/scripts'
+      - './scripts/install-python-packages.sh:/custom-cont-init.d/install-python-packages'
+      - '.env:/.env'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8686/api/v1/system/status"]
       interval: 30s
@@ -129,18 +127,18 @@ services:
   # MAINTAINERR - Plex Library Management
   # ----------------------------------------
   maintainerr:
-    image: ghcr.io/jorenn92/maintainerr:latest 
+    image: ghcr.io/jorenn92/maintainerr:latest
     container_name: maintainerr
     user: ${PUID}:${PGID}
     profiles: ["maintenance", "full"]
     volumes:
-         - './maintainerr:/opt/data'
-    network_mode: 'bridge' 
+      - './maintainerr:/opt/data'
+    network_mode: 'bridge'
     environment:
-         - TZ=${TZ}
-    #   - DEBUG=true # uncomment to enable debug logs
+      - TZ=${TZ}
+      # - DEBUG=true # uncomment to enable debug logs
     ports:
-         - '${IP_ADDRESS}:6246:6246' 
+      - '${IP_ADDRESS}:6246:6246'
     restart: unless-stopped
 
   # ----------------------------------------
@@ -169,29 +167,28 @@ services:
       start_period: 40s
 
   # ----------------------------------------
-  # OVERSEERR - Media Requests
+  # SEERR - Media Requests (replaces Overseerr & Jellyseerr)
   # ----------------------------------------
-  overseerr:
-    image: lscr.io/linuxserver/overseerr
-    container_name: overseerr
+  seerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    init: true
+    container_name: seerr
     restart: unless-stopped
     profiles: ["requests", "full"]
     network_mode: "bridge"
     environment:
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - LOG_LEVEL=info
-        - TZ=${TZ}
+      - LOG_LEVEL=info
+      - TZ=${TZ}
     ports:
-        - ${IP_ADDRESS}:5055:5055
+      - ${IP_ADDRESS}:5055:5055
     volumes:
-        - ./overseerr:/config
+      - ./overseerr:/app/config
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5055/api/v1/status"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5055/api/v1/status || exit 1"]
+      interval: 15s
+      timeout: 3s
       retries: 3
-      start_period: 40s
+      start_period: 20s
 
   # ----------------------------------------
   # PLEX
@@ -205,22 +202,22 @@ services:
     # Note: ports section omitted - not needed with network_mode: host
     # Plex uses: 32400 (web), 3005, 8324, 32469 (TCP), 1900, 32410-32414 (UDP)
     devices:
-        - /dev/dri:/dev/dri
+      - /dev/dri:/dev/dri
     environment:
-        - ADVERTISE_IP=http://${IP_ADDRESS}:32400/
-        - ALLOWED_NETWORKS=${CIDR_ADDRESS}
-        - PLEX_UID=${PUID}
-        - PLEX_GID=${PGID}
-        - TZ=${TZ}
+      - ADVERTISE_IP=http://${IP_ADDRESS}:32400/
+      - ALLOWED_NETWORKS=${CIDR_ADDRESS}
+      - PLEX_UID=${PUID}
+      - PLEX_GID=${PGID}
+      - TZ=${TZ}
     hostname: ${HOSTNAME}
     volumes:
-        - './plex:/config'
-        - './plex/transcode:/transcode'
-        - '${MISCDIR}:/data/misc'
-        - '${MOVIEDIR}:/data/movies'
-        - '${MUSICDIR}:/data/music'
-        - '${TVDIR}:/data/tv'
-        - '${PHOTODIR}:/data/photos'
+      - './plex:/config'
+      - './plex/transcode:/transcode'
+      - '${MISCDIR}:/data/misc'
+      - '${MOVIEDIR}:/data/movies'
+      - '${MUSICDIR}:/data/music'
+      - '${TVDIR}:/data/tv'
+      - '${PHOTODIR}:/data/photos'
 
   # ----------------------------------------
   # PORTAINER - Container Management
@@ -232,15 +229,15 @@ services:
     profiles: ["maintenance", "full"]
     network_mode: "bridge"
     ports:
-        - '${IP_ADDRESS}:8000:8000'
-        - '${IP_ADDRESS}:9443:9443'
+      - '${IP_ADDRESS}:8000:8000'
+      - '${IP_ADDRESS}:9443:9443'
     environment:
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
     volumes:
-        - './portainer:/data'
-        - '/var/run/docker.sock:/var/run/docker.sock'
+      - './portainer:/data'
+      - '/var/run/docker.sock:/var/run/docker.sock'
     command: -H unix:///var/run/docker.sock
     healthcheck:
       test: ["CMD", "curl", "-f", "-k", "https://localhost:9443/api/status"]
@@ -283,14 +280,14 @@ services:
     profiles: ["core", "full"]
     network_mode: "bridge"
     environment:
-        - LOG_LEVEL=${LOG_LEVEL:-info}
-        - LOG_HTML=${LOG_HTML:-false}
-        - CAPTCHA_SOLVER=${CAPTCHA_SOLVER:-none}
-        - TZ=${TZ}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_HTML=${LOG_HTML:-false}
+      - CAPTCHA_SOLVER=${CAPTCHA_SOLVER:-none}
+      - TZ=${TZ}
     ports:
-        - '${IP_ADDRESS}:8191:8191'
+      - '${IP_ADDRESS}:8191:8191'
     volumes:
-        - /etc/localtime:/etc/localtime:ro
+      - /etc/localtime:/etc/localtime:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8191/health"]
       interval: 30s
@@ -308,27 +305,27 @@ services:
     profiles: ["core", "full"]
     network_mode: "bridge"
     ports:
-        - '${IP_ADDRESS}:7878:7878'
+      - '${IP_ADDRESS}:7878:7878'
     devices:
-        - /dev/dri:/dev/dri
+      - /dev/dri:/dev/dri
     environment:
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - TZ=${TZ}
-        - DOCKER_MODS=linuxserver/mods:universal-package-install
-        - INSTALL_PACKAGES=python3|py3-pip|ffmpeg
-        - TVDIR=${TVDIR}
-        - MOVIEDIR=${MOVIEDIR}
-        - MUSICDIR=${MUSICDIR}
-        - MISCDIR=${MISCDIR}
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - DOCKER_MODS=linuxserver/mods:universal-package-install
+      - INSTALL_PACKAGES=python3|py3-pip|ffmpeg
+      - TVDIR=${TVDIR}
+      - MOVIEDIR=${MOVIEDIR}
+      - MUSICDIR=${MUSICDIR}
+      - MISCDIR=${MISCDIR}
     volumes:
-        - './radarr:/config'
-        - '${DLDIR}/completed:/data/completed'
-        - '${DLDIR}/incomplete:/data/incomplete'
-        - '${MOVIEDIR}:/movies'
-        - './scripts:/scripts'
-        - './scripts/install-python-packages.sh:/custom-cont-init.d/install-python-packages'
-        - '.env:/.env'
+      - './radarr:/config'
+      - '${DLDIR}/completed:/data/completed'
+      - '${DLDIR}/incomplete:/data/incomplete'
+      - '${MOVIEDIR}:/movies'
+      - './scripts:/scripts'
+      - './scripts/install-python-packages.sh:/custom-cont-init.d/install-python-packages'
+      - '.env:/.env'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7878/api/v3/system/status"]
       interval: 30s
@@ -346,26 +343,26 @@ services:
     profiles: ["core", "full"]
     network_mode: "bridge"
     ports:
-        - '${IP_ADDRESS}:8989:8989'
+      - '${IP_ADDRESS}:8989:8989'
     devices:
-        - /dev/dri:/dev/dri
+      - /dev/dri:/dev/dri
     environment:
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - TZ=${TZ}
-        - DOCKER_MODS=linuxserver/mods:universal-package-install
-        - INSTALL_PACKAGES=python3|py3-pip|ffmpeg
-        - TVDIR=${TVDIR}
-        - MOVIEDIR=${MOVIEDIR}
-        - MUSICDIR=${MUSICDIR}
-        - MISCDIR=${MISCDIR}
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - DOCKER_MODS=linuxserver/mods:universal-package-install
+      - INSTALL_PACKAGES=python3|py3-pip|ffmpeg
+      - TVDIR=${TVDIR}
+      - MOVIEDIR=${MOVIEDIR}
+      - MUSICDIR=${MUSICDIR}
+      - MISCDIR=${MISCDIR}
     volumes:
-        - './sonarr:/config'
-        - '${DLDIR}/completed:/data/completed'
-        - '${DLDIR}/incomplete:/data/incomplete'
-        - '${TVDIR}:/tv'
-        - './scripts:/scripts'
-        - '.env:/.env'
+      - './sonarr:/config'
+      - '${DLDIR}/completed:/data/completed'
+      - '${DLDIR}/incomplete:/data/incomplete'
+      - '${TVDIR}:/tv'
+      - './scripts:/scripts'
+      - '.env:/.env'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8989/api/v3/system/status"]
       interval: 30s
@@ -383,13 +380,13 @@ services:
     profiles: ["plex", "full"]
     network_mode: "bridge"
     ports:
-        - '${IP_ADDRESS}:5050:5050'
+      - '${IP_ADDRESS}:5050:5050'
     environment:
-        - PLEX_URL=${PLEX_URL}
-        - PLEX_TOKEN=${PLEX_TOKEN}
-        - TZ=${TZ}
+      - PLEX_URL=${PLEX_URL}
+      - PLEX_TOKEN=${PLEX_TOKEN}
+      - TZ=${TZ}
     depends_on:
-        - plex
+      - plex
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5050/health"]
       interval: 30s
@@ -407,13 +404,13 @@ services:
     profiles: ["monitoring", "plex", "full"]
     network_mode: "bridge"
     ports:
-        - '${IP_ADDRESS}:8181:8181'
+      - '${IP_ADDRESS}:8181:8181'
     environment:
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
     volumes:
-        - './tautulli:/config'
-        - './plex/Library/Application Support/Plex Media Server/Logs:/logs:ro'
+      - './tautulli:/config'
+      - './plex/Library/Application Support/Plex Media Server/Logs:/logs:ro'
     depends_on:
-        - plex
+      - plex
