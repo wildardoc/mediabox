@@ -5,11 +5,15 @@ This helps identify problematic files that cause FFmpeg encoding failures.
 """
 
 import os
+import sys
 import json
 import logging
 import subprocess
 from datetime import datetime
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from media_database import VIDEO_EXTS
 
 # Setup logging
 log_filename = f"unknown_channels_scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -28,8 +32,7 @@ MEDIA_DIRS = [
     '/Storage/media/tv'
 ]
 
-# Supported video file extensions
-VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v'}
+VIDEO_EXTENSIONS = set(VIDEO_EXTS)  # from media_database
 
 def scan_file_for_unknown_channels(file_path):
     """

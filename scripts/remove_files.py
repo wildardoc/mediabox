@@ -156,11 +156,91 @@ from datetime import datetime
 
 MEDIA_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.m2ts',
               '.mp3', '.flac', '.aac', '.ogg', '.wav', '.m4a', '.alac', '.opus')
-DAYS_OLD = 7
+DAYS_OLD = 30
 BITRATE_TOLERANCE = 1000000
 
 def setup_logging(logfile):
     logging.basicConfig(filename=logfile, level=logging.INFO, format='%(asctime)s %(levelname)s:%(message)s')
+
+# Deluge integration: deleting a file straight off disk while Deluge still
+# tracks it as part of a torrent corrupts Deluge's fastresume data - the
+# torrent errors out ("mismatching file size") and can end up stuck/paused on
+# the next daemon restart. Instead, when a candidate file belongs to a torrent
+# Deluge still knows about, remove the torrent (with its data) through Deluge's
+# own RPC so its state stays consistent. Falls back to a direct delete for
+# files Deluge isn't tracking (e.g. NZBGet downloads, or torrents already
+# removed by the user).
+_DELUGE_FILE_MAP = {}
+_DELUGE_CLIENT = None
+_DELUGE_REMOVED_TORRENTS = set()
+
+def _load_deluge_auth():
+    auth_path = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'delugevpn', 'config', 'auth'))
+    try:
+        with open(auth_path) as f:
+            line = f.readline().strip()
+        parts = line.split(':')
+        if len(parts) >= 2:
+            return parts[0], parts[1]
+    except Exception as e:
+        logging.warning(f"Could not read Deluge auth file {auth_path}: {e}")
+    return None, None
+
+def _load_env_value(key, default=None):
+    env_file = config.get('env_file') if isinstance(config, dict) and config.get('env_file') else os.path.join(os.path.dirname(__file__), '..', '.env')
+    try:
+        if os.path.exists(env_file):
+            with open(env_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith(f'{key}='):
+                        return line.split('=', 1)[1].strip().strip('"')
+    except Exception:
+        pass
+    return default
+
+def _init_deluge():
+    global _DELUGE_FILE_MAP, _DELUGE_CLIENT
+    username, password = _load_deluge_auth()
+    if not username:
+        logging.warning("Deluge auth not available; cleanup will delete files directly without notifying Deluge")
+        return
+    host = _load_env_value('IP_ADDRESS', '127.0.0.1')
+    try:
+        from deluge_client import DelugeRPCClient
+        client = DelugeRPCClient(host, 58846, username, password, decode_utf8=True)
+        client.connect()
+        statuses = client.call('core.get_torrents_status', {}, ['save_path', 'files'])
+        dldir = _load_env_value('DLDIR') or (DOWNLOAD_DIRS[0] if DOWNLOAD_DIRS else None)
+        for torrent_id, info in statuses.items():
+            save_path = info.get('save_path', '')
+            for f in info.get('files', []):
+                container_path = os.path.normpath(os.path.join(save_path, f['path']))
+                if dldir and container_path.startswith('/data'):
+                    host_path = os.path.normpath(container_path.replace('/data', dldir, 1))
+                else:
+                    host_path = container_path
+                _DELUGE_FILE_MAP[host_path] = torrent_id
+        _DELUGE_CLIENT = client
+        logging.info(f"Connected to Deluge: tracking {len(statuses)} torrents ({len(_DELUGE_FILE_MAP)} files)")
+    except Exception as e:
+        logging.warning(f"Could not connect to Deluge at {host}:58846 - {e}")
+        _DELUGE_CLIENT = None
+
+def delete_download_file(file_path):
+    torrent_id = _DELUGE_FILE_MAP.get(os.path.normpath(file_path))
+    if torrent_id:
+        if torrent_id in _DELUGE_REMOVED_TORRENTS:
+            return
+        try:
+            _DELUGE_CLIENT.call('core.remove_torrent', torrent_id, True)
+            _DELUGE_REMOVED_TORRENTS.add(torrent_id)
+            logging.info(f"Removed torrent {torrent_id} via Deluge (owned {file_path})")
+            return
+        except Exception as e:
+            logging.warning(f"Failed to remove torrent {torrent_id} via Deluge ({e}); deleting file directly instead")
+    if os.path.exists(file_path):
+        os.remove(file_path)
 
 def get_media_info(filepath):
     try:
@@ -247,7 +327,7 @@ def should_delete_tv(file_path, library_tv_dir, dry_run=False):
         if age_days > DAYS_OLD:
             print(f"{file_path} is old and not matched. {'[DRY RUN]' if dry_run else 'Deleting.'}")
             if not dry_run:
-                os.remove(file_path)
+                delete_download_file(file_path)
             return True
         return False
 
@@ -258,7 +338,7 @@ def should_delete_tv(file_path, library_tv_dir, dry_run=False):
         if (dl_w, dl_h) <= (lib_w, lib_h):
             print(f"{file_path} is lower/equal resolution than library copy. {'[DRY RUN]' if dry_run else 'Deleting.'}")
             if not dry_run:
-                os.remove(file_path)
+                delete_download_file(file_path)
             return True
         else:
             print(f"{file_path} is higher resolution than library copy. Manual intervention needed.")
@@ -272,7 +352,7 @@ def should_delete_tv(file_path, library_tv_dir, dry_run=False):
         if age_days > DAYS_OLD:
             print(f"{file_path} is old and not matched. {'[DRY RUN]' if dry_run else 'Deleting.'}")
             if not dry_run:
-                os.remove(file_path)
+                delete_download_file(file_path)
             return True
         return False
 
@@ -349,7 +429,7 @@ def should_delete_movie(file_path, library_movie_dir, dry_run=False):
         if age_days > DAYS_OLD:
             print(f"{file_path} is old and not matched. {'[DRY RUN]' if dry_run else 'Deleting.'}")
             if not dry_run:
-                os.remove(file_path)
+                delete_download_file(file_path)
             return True
         return False
 
@@ -360,7 +440,7 @@ def should_delete_movie(file_path, library_movie_dir, dry_run=False):
         if (dl_w, dl_h) <= (lib_w, lib_h):
             print(f"{file_path} is lower/equal resolution than library copy. {'[DRY RUN]' if dry_run else 'Deleting.'}")
             if not dry_run:
-                os.remove(file_path)
+                delete_download_file(file_path)
             return True
         else:
             print(f"{file_path} is higher resolution than library copy. Manual intervention needed.")
@@ -373,7 +453,7 @@ def should_delete_movie(file_path, library_movie_dir, dry_run=False):
         if age_days > DAYS_OLD:
             print(f"{file_path} is old and not matched. {'[DRY RUN]' if dry_run else 'Deleting.'}")
             if not dry_run:
-                os.remove(file_path)
+                delete_download_file(file_path)
             return True
         return False
 
@@ -389,7 +469,7 @@ def should_delete_music(file_path, library_music_dir, dry_run=False):
         if age_days > DAYS_OLD:
             print(f"{file_path} is old and not matched. {'[DRY RUN]' if dry_run else 'Deleting.'}")
             if not dry_run:
-                os.remove(file_path)
+                delete_download_file(file_path)
             return True
         return False
 
@@ -401,7 +481,7 @@ def should_delete_music(file_path, library_music_dir, dry_run=False):
             if dl_info[2] <= lib_info[2]:  # Compare bitrate
                 print(f"{file_path} is lower/equal bitrate than library copy. {'[DRY RUN]' if dry_run else 'Deleting.'}")
                 if not dry_run:
-                    os.remove(file_path)
+                    delete_download_file(file_path)
                 return True
             else:
                 print(f"{file_path} is higher bitrate than library copy. Manual intervention needed.")
@@ -415,7 +495,7 @@ def should_delete_music(file_path, library_music_dir, dry_run=False):
             if age_days > DAYS_OLD:
                 print(f"{file_path} is old and not matched (bitrate unknown). {'[DRY RUN]' if dry_run else 'Deleting.'}")
                 if not dry_run:
-                    os.remove(file_path)
+                    delete_download_file(file_path)
                 return True
             return False
     else:
@@ -427,7 +507,7 @@ def should_delete_music(file_path, library_music_dir, dry_run=False):
         if age_days > DAYS_OLD:
             print(f"{file_path} is old and not matched. {'[DRY RUN]' if dry_run else 'Deleting.'}")
             if not dry_run:
-                os.remove(file_path)
+                delete_download_file(file_path)
             return True
         return False
 
@@ -437,6 +517,7 @@ def main():
     parser.add_argument('--log-file', default=f"cleanup_downloads_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log", help="Path to the log file.")
     args = parser.parse_args()
     setup_logging(args.log_file)
+    _init_deluge()
 
     tv_library_dir = TV_LIBRARY_DIR
     movie_library_dir = MOVIE_LIBRARY_DIR
@@ -462,7 +543,7 @@ def main():
                     if age_days > DAYS_OLD:
                         print(f"{file_path} is old and not matched. {'[DRY RUN]' if args.dry_run else 'Deleting.'}")
                         if not args.dry_run:
-                            os.remove(file_path)
+                            delete_download_file(file_path)
 
 if __name__ == "__main__":
     main()

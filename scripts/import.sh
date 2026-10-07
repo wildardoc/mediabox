@@ -471,8 +471,16 @@ execute_conversion() {
     log_message "INFO" "  Container path: $processing_path"
     log_message "INFO" "  Arguments: ${cmd_args[*]}"
     
-    # Execute conversion using virtual environment Python
-    local venv_python="/scripts/.venv/bin/python"
+    # Execute conversion using Python. Inside the *arr containers, packages are
+    # installed system-wide (via custom-cont-init.d/install-python-packages), so
+    # use the container's own python3 rather than the host-built /scripts/.venv -
+    # that venv is created with the host's Python version and silently ignores
+    # its installed packages when run under a container with a different Python
+    # version (pyvenv.cfg pins site-packages to a version-specific path).
+    local venv_python="python3"
+    if [[ "$SCRIPT_DIR" != "/scripts" && -x "$SCRIPT_DIR/.venv/bin/python" ]]; then
+        venv_python="$SCRIPT_DIR/.venv/bin/python"
+    fi
     log_message "INFO" "Executing: $venv_python $MEDIA_UPDATE_SCRIPT ${cmd_args[*]}"
     
     # Change to script directory to ensure relative paths work

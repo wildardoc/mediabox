@@ -67,7 +67,7 @@ except Exception as e:
     print(f"Warning: Could not activate virtual environment: {e}")
     print("Continuing with system Python packages...")
 
-from media_database import MediaDatabase
+from media_database import MediaDatabase, VIDEO_EXTS, is_hdr_probe
 
 # Import ffmpeg if available
 try:
@@ -76,11 +76,6 @@ try:
 except ImportError:
     FFMPEG_AVAILABLE = False
     print("Warning: ffmpeg-python not available. Install with: pip install ffmpeg-python")
-
-# Supported media extensions
-VIDEO_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.m2ts', '.m4v', '.webm')
-# Audio files are not scanned - they don't benefit from metadata caching
-# For audio conversion, use media_update.py directly (simple extension check is sufficient)
 
 class MediaScanner:
     """Scan and catalog media files"""
@@ -231,13 +226,13 @@ class MediaScanner:
                 status = "✨ New"
             
             # Check if HDR
-            is_hdr = self._is_hdr(probe)
+            is_hdr = is_hdr_probe(probe)
             if is_hdr:
                 self.stats['hdr_found'] += 1
                 status += " [HDR]"
             
             if self.verbose or idx % 10 == 0:
-                print(f"   [{idx}/{total}] {status}: {os.path.basename(filepath)} ({action}) [{probe_time:.1f}s]")
+                print(f"   [{idx}/{total}] {status}: {os.path.basename(filepath)} [{probe_time:.1f}s]")
             else:
                 self._print_progress(idx, total)
                 
@@ -270,23 +265,6 @@ class MediaScanner:
         if current == total:
             print()  # New line when complete
     
-    def _is_hdr(self, probe):
-        """Check if probe indicates HDR content"""
-        video_stream = next((s for s in probe.get('streams', []) if s['codec_type'] == 'video'), None)
-        if not video_stream:
-            return False
-        
-        color_transfer = video_stream.get('color_transfer', '')
-        color_primaries = video_stream.get('color_primaries', '')
-        pix_fmt = video_stream.get('pix_fmt', '')
-        
-        if color_transfer in ['smpte2084', 'arib-std-b67']:
-            return True
-        if color_primaries == 'bt2020' and '10' in pix_fmt:
-            return True
-        
-        return False
-
     def _print_summary(self):
         """Print scan summary"""
         elapsed = time.time() - self.start_time
@@ -314,7 +292,7 @@ class MediaScanner:
         print()
         
         # Get database stats
-        db_stats = self.db.get_statistics()
+        db_stats = self.db.get_statistics(self.scanned_directories or None)
         print(f"Database statistics:")
         print(f"  • Total entries:      {db_stats.get('total_files', 0):,}")
         

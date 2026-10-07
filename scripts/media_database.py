@@ -24,6 +24,28 @@ from pathlib import Path
 MEDIA_DATABASE_VERSION = "1.0.0"
 CACHE_FILENAME = ".mediabox_cache.json"
 
+# Single source of truth for supported video extensions across all scripts
+VIDEO_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.ts', '.m2ts', '.m4v', '.webm')
+
+
+def is_hdr_probe(probe):
+    """Return True if ffprobe data indicates HDR content (HDR10, HLG, Dolby Vision)."""
+    video_stream = next((s for s in probe.get('streams', []) if s.get('codec_type') == 'video'), None)
+    if not video_stream:
+        return False
+    color_transfer = video_stream.get('color_transfer', '')
+    color_primaries = video_stream.get('color_primaries', '')
+    pix_fmt = video_stream.get('pix_fmt', '')
+    if color_transfer in ('smpte2084', 'arib-std-b67'):
+        return True
+    if color_primaries == 'bt2020' and '10' in pix_fmt:
+        return True
+    if 'side_data_list' in video_stream:
+        for side_data in video_stream['side_data_list']:
+            if side_data.get('side_data_type') == 'DOVI configuration record':
+                return True
+    return False
+
 class MediaDatabase:
     """JSON-based media file metadata cache using per-directory cache files"""
     
@@ -332,8 +354,8 @@ class MediaDatabase:
             return
         
         # Extract data from probe
-        video_stream = next((s for s in probe.get('streams', []) if s['codec_type'] == 'video'), None)
-        audio_streams = [s for s in probe.get('streams', []) if s['codec_type'] == 'audio']
+        video_stream = next((s for s in probe.get('streams', []) if s.get('codec_type') == 'video'), None)
+        audio_streams = [s for s in probe.get('streams', []) if s.get('codec_type') == 'audio']
         
         # Video data
         codec_video = video_stream.get('codec_name') if video_stream else None

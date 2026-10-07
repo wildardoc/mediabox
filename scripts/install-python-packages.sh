@@ -6,15 +6,14 @@ set -euo pipefail  # Exit on error, undefined variables, pipe failures
 
 echo "**** Installing Python packages for media processing ****"
 
+# Install system-wide into the container's own Python (not the host-built
+# /scripts/.venv - that venv is version-pinned to the host's Python and is not
+# usable from inside a container running a different Python version).
 # Check if packages are already installed to avoid reinstalling on every restart
-if ! python3 -c "import ffmpeg" >/dev/null 2>&1; then
-    echo "**** Installing ffmpeg-python and future packages ****"
-    pip3 install --break-system-packages ffmpeg-python==0.2.0 future==1.0.0
+if ! python3 -c "import ffmpeg, requests, plexapi" >/dev/null 2>&1; then
+    echo "**** Installing packages from requirements.txt ****"
+    pip3 install --break-system-packages -r /scripts/requirements.txt
     echo "**** Python packages installation completed ****"
 else
     echo "**** Python packages already installed ****"
 fi
-
-source scripts/.venv/bin/activate
-pip install -r scripts/requirements.txt --break-system-packages
-deactivate

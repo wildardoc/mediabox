@@ -110,10 +110,12 @@ from pathlib import Path
 
 # Import media database for caching
 try:
-    from media_database import MediaDatabase
+    from media_database import MediaDatabase, VIDEO_EXTS, is_hdr_probe
     DATABASE_AVAILABLE = True
 except ImportError:
     DATABASE_AVAILABLE = False
+    VIDEO_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.ts', '.m2ts', '.m4v', '.webm')
+    is_hdr_probe = None
     print("Warning: media_database not available. Caching disabled.")
 
 # Import file locking for distributed processing
@@ -334,8 +336,7 @@ atexit.register(cleanup_unfinished_file)
 for sig in (signal.SIGINT, signal.SIGTERM):
     signal.signal(sig, lambda signum, frame: (cleanup_unfinished_file(), exit(1)))
 
-# Define supported video and audio file extensions as module-level constants
-VIDEO_EXTS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.ts', '.m2ts')
+# VIDEO_EXTS imported from media_database (single source of truth)
 AUDIO_EXTS = ('.flac', '.wav', '.aiff', '.ape', '.wv', '.m4a', '.ogg', '.opus', '.wma')
 
 # AAC Quality Settings
@@ -2285,6 +2286,19 @@ def transcode_file(input_file, force_stereo=False, downgrade_resolution=False):
                             action_taken=', '.join(action_taken)
                         )
                         logging.info(f"✅ Database updated: {', '.join(action_taken)}")
+
+                        # Re-probe converted file so cache reflects actual post-conversion
+                        # state (e.g. has_stereo_track=True after stereo creation).
+                        # Without this, needs_conversion() reads stale pre-conversion
+                        # probe data on the next run and reprocesses the file again.
+                        try:
+                            new_probe = ffmpeg.probe(final_output_file)
+                            new_fingerprint = transcode_file.db.get_file_fingerprint(final_output_file)
+                            if new_fingerprint:
+                                transcode_file.db.store_probe(new_fingerprint, new_probe)
+                                logging.info(f"📦 Cache refreshed with post-conversion probe data")
+                        except Exception as reprobe_err:
+                            logging.warning(f"Failed to refresh cache after conversion: {reprobe_err}")
                     except Exception as e:
                         logging.warning(f"Failed to update database after conversion: {e}")
             

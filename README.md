@@ -399,11 +399,13 @@ All automation scripts are organized in the `scripts/` directory:
 scripts/
 ├── import.sh                 # Webhook handler for *arr integration
 ├── media_update.py          # Core media processing engine  
+├── remove_files.py          # Download cleanup (Deluge-aware deletion)
+├── deluge-cleanup-orphaned.py # Diagnostic: find/remove Deluge torrents with missing or mismatched files
 ├── rotate-logs.sh           # Log rotation utility
 ├── mediabox_config.json     # Configuration file
 ├── requirements.txt         # Python dependencies
 ├── LOG_MANAGEMENT.md        # Log management documentation
-└── .venv/                   # Python virtual environment
+└── .venv/                   # Python virtual environment (host-side use only - not shared with containers)
 ```
 
 ## **Core Processing Engine**
@@ -450,6 +452,11 @@ cd scripts && python3 remove_files.py --dry-run
 # Actually remove files
 cd scripts && python3 remove_files.py
 
+# Find Deluge torrents with missing/mismatched files (e.g. left over from
+# before remove_files.py routed deletions through Deluge) and remove them
+cd scripts && python3 deluge-cleanup-orphaned.py          # dry run
+cd scripts && python3 deluge-cleanup-orphaned.py --remove # actually remove
+
 # Manual log rotation
 cd scripts && ./rotate-logs.sh
 
@@ -466,7 +473,8 @@ tail -50 scripts/cleanup_downloads_*.log | tail -1
 **Automatic Cleanup Features:**
 - **Smart Duplicate Detection**: Compares download files against library files
 - **Resolution-Based Cleanup**: Removes lower-quality duplicates automatically  
-- **Age-Based Cleanup**: Removes unmatched files older than 7 days
+- **Age-Based Cleanup**: Removes unmatched files older than 30 days
+- **Deluge-Aware Deletion**: If a candidate file still belongs to a torrent Deluge is tracking, the torrent is removed through Deluge's own RPC (`core.remove_torrent`) instead of deleting the file directly - this keeps Deluge's fastresume state consistent and avoids torrents erroring/pausing on the next restart. Files not tracked by Deluge (e.g. NZBGet downloads) are deleted directly as before.
 - **Weekly Schedule**: Runs automatically on Mondays at 3 AM
 
 ### **Automated Testing**

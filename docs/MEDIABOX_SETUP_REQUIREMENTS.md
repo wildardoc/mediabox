@@ -2,10 +2,21 @@
 
 ## 1. Virtual Environment Management
 
-The script creates a virtual environment on the host and mounts it into containers:
+The host and the *arr containers do **not** share a single virtual environment.
+Earlier revisions of this project tried that (host `.venv` bind-mounted into
+each container via `./scripts:/scripts`), but it's fundamentally fragile:
+the host runs Ubuntu/glibc while the *arr containers run Alpine/musl, and a
+Python venv hard-codes its site-packages path to the interpreter's own
+major.minor version (`lib/pythonX.Y/site-packages`). Any time the container
+image bumps its bundled Python version - which Alpine does independently of
+the host - the mounted venv silently stops resolving its installed packages
+(`ModuleNotFoundError`), even though nothing in this repo changed.
+
+Instead, each environment manages its own packages, with `requirements.txt`
+as the single source of truth for versions:
 
 ```bash
-# Host virtual environment setup (already implemented)
+# Host virtual environment (used when running scripts directly from the shell)
 VENV_DIR="$SCRIPTS_DIR/.venv"
 python3 -m venv "$VENV_DIR"
 source "$VENV_DIR/bin/activate"
@@ -13,37 +24,32 @@ pip install --upgrade pip
 pip install -r "$REQ_FILE"
 deactivate
 
-# Containers access the same virtual environment via volume mount:
-# docker-compose.yml: './scripts:/scripts' 
-# This makes /scripts/.venv available in containers
+# Each *arr container installs the same requirements.txt into its own system
+# Python on startup (see scripts/install-python-packages.sh, wired up via
+# custom-cont-init.d). import.sh therefore invokes plain `python3` when
+# running inside a container, not the host's .venv.
 ```
 
-## 2. Container Virtual Environment Verification
+## 2. Container Python Package Verification
 
-After containers start, verify they can access the mounted virtual environment:
+After containers start, verify each one has its own copy of the required packages:
 
 ```bash
 verify_container_venv_access() {
-    echo "🔍 Verifying containers can access virtual environment..."
-    
+    echo "🔍 Verifying containers have required Python packages..."
+
     local containers=("sonarr" "radarr" "lidarr")
-    
+
     for container in "${containers[@]}"; do
         echo "  Checking $container..."
-        
-        # Check if .venv directory is mounted
-        if docker exec "$container" test -d "/scripts/.venv"; then
-            echo "    ✅ Virtual environment directory mounted"
+
+        # Packages are installed system-wide inside each container by
+        # custom-cont-init.d/install-python-packages - there is no shared
+        # venv to check for a mount anymore.
+        if docker exec "$container" python3 -c "import requests, plexapi; print('OK')" 2>/dev/null | grep -q "OK"; then
+            echo "    ✅ Python packages accessible"
         else
-            echo "    ❌ Virtual environment directory not mounted"
-            continue
-        fi
-        
-        # Check if Python packages are accessible
-        if docker exec "$container" /scripts/.venv/bin/python -c "import requests, plexapi; print('OK')" 2>/dev/null | grep -q "OK"; then
-            echo "    ✅ Python packages accessible via mounted venv"
-        else
-            echo "    ⚠️  Python packages not accessible"
+            echo "    ⚠️  Python packages not accessible (may need container restart)"
         fi
     done
 }

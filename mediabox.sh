@@ -272,7 +272,7 @@ read -r -p "Where do you store your TV media? (Please use full path - /path/to/t
 read -r -p "Where do you store your MISC media? (Please use full path - /path/to/misc ): " miscdirectory
 read -r -p "Where do you store your MOVIE media? (Please use full path - /path/to/movies ): " moviedirectory
 read -r -p "Where do you store your MUSIC media? (Please use full path - /path/to/music ): " musicdirectory
-read -r -p "Where do you store your PHOTO media? (Please use full path - /path/to/photos ): " photoirectory
+read -r -p "Where do you store your PHOTO media? (Please use full path - /path/to/photos ): " photodirectory
 fi
 if [ "$diranswer" == "n" ]; then
 read -r -p "Where do you store your DOWNLOADS? (Please use full path - /path/to/downloads ): " dldirectory
@@ -485,6 +485,7 @@ create_directory "radarr" "$USE_ZFS_DATASETS"
 create_directory "sonarr" "$USE_ZFS_DATASETS"
 create_directory "tautulli" "$USE_ZFS_DATASETS"
 create_directory "maintainerr" "$USE_ZFS_DATASETS"
+create_directory "bazarr" "$USE_ZFS_DATASETS"
 
 echo "✅ Directory structure created successfully"
 
@@ -570,40 +571,33 @@ if ! docker compose up -d --remove-orphans; then
 fi
 echo "✅ Docker containers started successfully"
 
-# Verify virtual environment is accessible in containers
+# Verify each container's own Python has the required packages installed.
+# Packages are installed system-wide inside each container by
+# custom-cont-init.d/install-python-packages (see scripts/install-python-packages.sh) -
+# the host-built /scripts/.venv is not used from inside containers since its
+# Python version won't generally match the container's.
 verify_container_venv_access() {
-    echo "🔍 Verifying containers can access virtual environment..."
-    
+    echo "🔍 Verifying containers have required Python packages..."
+
     local containers=("sonarr" "radarr" "lidarr")
     local all_good=true
-    
+
     for container in "${containers[@]}"; do
         echo "  Checking $container..."
-        
-        # Check if .venv directory is mounted
-        if docker exec "$container" test -d "/scripts/.venv" 2>/dev/null; then
-            echo "    ✅ Virtual environment directory mounted"
-        else
-            echo "    ❌ Virtual environment directory not mounted"
-            all_good=false
-            continue
-        fi
-        
-        # Check if Python packages are accessible
-        if docker exec "$container" /scripts/.venv/bin/python -c "import requests, plexapi; print('OK')" 2>/dev/null | grep -q "OK"; then
+
+        if docker exec "$container" python3 -c "import requests, plexapi; print('OK')" 2>/dev/null | grep -q "OK"; then
             echo "    ✅ Python packages accessible"
         else
-            echo "    ⚠️  Python packages not accessible (may need host venv rebuild)"
+            echo "    ⚠️  Python packages not accessible (may need container restart)"
             all_good=false
         fi
     done
-    
+
     if [[ "$all_good" == "true" ]]; then
-        echo "  ✅ All containers can access virtual environment"
+        echo "  ✅ All containers have required Python packages"
     else
-        echo "  ⚠️  Some containers have virtual environment issues"
-        echo "  💡 The host virtual environment with required packages will be used"
-        echo "  💡 Containers access packages via mounted /scripts/.venv directory"
+        echo "  ⚠️  Some containers are missing required Python packages"
+        echo "  💡 Restart the affected container(s) to re-run install-python-packages"
     fi
 }
 
@@ -626,7 +620,8 @@ install_container_python_packages() {
     )
     
     local containers=("sonarr" "radarr" "lidarr")
-    local retry_file="$SCRIPTS_DIR/.container_package_retry"
+    local scripts_dir="$(cd "$(dirname "$0")" && pwd)/scripts"
+    local retry_file="$scripts_dir/.container_package_retry"
     
     # Clear any old retry file
     rm -f "$retry_file"
@@ -1023,7 +1018,7 @@ validate_installation() {
     echo "🔍 INSTALLATION VALIDATION"
     
     # Check containers are running
-    local containers=("sonarr" "radarr" "lidarr" "plex" "homer" "portainer" "flaresolverr" "prowlarr")
+    local containers=("sonarr" "radarr" "lidarr" "plex" "homer" "portainer" "flaresolverr" "prowlarr" "bazarr")
     echo "Checking container status..."
     for container in "${containers[@]}"; do
         if docker ps --format "table {{.Names}}" | grep -q "^$container$"; then
@@ -1033,14 +1028,14 @@ validate_installation() {
         fi
     done
     
-    # Check virtual environment access in containers
+    # Check Python package access in containers
     echo ""
-    echo "Checking virtual environment access in *arr containers..."
+    echo "Checking Python package access in *arr containers..."
     for container in sonarr radarr lidarr; do
-        if docker exec "$container" /scripts/.venv/bin/python -c "import requests, plexapi; print('OK')" 2>/dev/null | grep -q "OK"; then
-            echo "  ✅ $container (venv packages accessible)"
+        if docker exec "$container" python3 -c "import requests, plexapi; print('OK')" 2>/dev/null | grep -q "OK"; then
+            echo "  ✅ $container (packages accessible)"
         else
-            echo "  ⚠️  $container (venv packages not accessible)"
+            echo "  ⚠️  $container (packages not accessible)"
         fi
     done
     
@@ -1077,14 +1072,13 @@ validate_installation() {
 show_troubleshooting() {
     echo "🔧 TROUBLESHOOTING"
     echo ""
-    echo "If virtual environment packages are not accessible in containers:"
-    echo "   # Rebuild host virtual environment:"
-    echo "   cd scripts && rm -rf .venv"
-    echo "   python3 -m venv .venv"
-    echo "   source .venv/bin/activate && pip install -r requirements.txt"
+    echo "If Python packages are not accessible in *arr containers:"
+    echo "   # Packages are installed system-wide inside each container on startup"
+    echo "   # by custom-cont-init.d/install-python-packages. Restart the container"
+    echo "   # to re-run it, or install manually:"
+    echo "   docker exec <container> pip3 install --break-system-packages -r /scripts/requirements.txt"
     echo ""
-    echo "If containers can't access /scripts/.venv:"
-    echo "   # Check docker-compose.yml volume mounts for *arr services"
+    echo "If that still fails, check docker-compose.yml volume mounts for *arr services:"
     echo "   # Should include: ./scripts:/scripts"
     echo ""
     echo "If Plex token is missing:"
