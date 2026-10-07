@@ -4,6 +4,8 @@ import os
 import re
 import json
 
+from env_config import get_env_value
+
 def validate_config(config):
     """Validate mediabox configuration structure"""
     required_keys = ['venv_path', 'download_dirs', 'library_dirs']
@@ -72,16 +74,7 @@ os.environ["PATH"] = os.path.join(venv_path, "bin") + os.pathsep + os.environ.ge
 SONARR_PROTECTED_HOST_PATHS = set()
 
 def _load_dldir_from_env(env_file_path):
-    try:
-        if os.path.exists(env_file_path):
-            with open(env_file_path, 'r') as ef:
-                for line in ef:
-                    line=line.strip()
-                    if line.startswith('DLDIR='):
-                        return line.split('=',1)[1].strip().strip('"')
-    except Exception:
-        pass
-    return None
+    return get_env_value('DLDIR', None, env_file=env_file_path)
 
 
 def _build_sonarr_protected_paths():
@@ -187,17 +180,8 @@ def _load_deluge_auth():
     return None, None
 
 def _load_env_value(key, default=None):
-    env_file = config.get('env_file') if isinstance(config, dict) and config.get('env_file') else os.path.join(os.path.dirname(__file__), '..', '.env')
-    try:
-        if os.path.exists(env_file):
-            with open(env_file) as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith(f'{key}='):
-                        return line.split('=', 1)[1].strip().strip('"')
-    except Exception:
-        pass
-    return default
+    env_file = config.get('env_file') if isinstance(config, dict) and config.get('env_file') else None
+    return get_env_value(key, default, env_file=env_file)
 
 def _init_deluge():
     global _DELUGE_FILE_MAP, _DELUGE_CLIENT

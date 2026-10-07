@@ -15,19 +15,9 @@ import json
 import os
 
 from deluge_client import DelugeRPCClient
+from env_config import get_env_value as load_env_value
 
 SCRIPT_DIR = os.path.dirname(__file__)
-
-
-def load_env_value(key, default=None):
-    env_file = os.path.join(SCRIPT_DIR, '..', '.env')
-    if os.path.exists(env_file):
-        with open(env_file) as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith(f'{key}='):
-                    return line.split('=', 1)[1].strip().strip('"')
-    return default
 
 
 def load_deluge_auth():
